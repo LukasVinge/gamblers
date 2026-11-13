@@ -284,3 +284,46 @@ export async function removeMember(fd: FormData) {
   if (resetInvite) parts.push("new invite link created");
   redirect(withParam("/", "notice", `${parts.join(" · ")}.`));
 }
+
+// ───────── profile ─────────
+
+export async function updateUsername(fd: FormData) {
+  const username = str(fd, "username");
+  if (!/^[a-zA-Z0-9_]{3,20}$/.test(username)) redirect(withParam("/profile", "error", "Username: 3–20 letters, numbers or _"));
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) redirect("/login");
+
+  const { error } = await supabase.from("profiles").update({ username }).eq("id", user.id);
+  if (error) {
+    redirect(withParam("/profile", "error", error.code === "23505" ? "That username is taken." : error.message));
+  }
+  revalidatePath("/", "layout");
+  redirect(withParam("/profile", "notice", `You're now @${username} ✓`));
+}
+
+// ───────── 🤝 I'm on it ─────────
+
+/** Join or leave a tip ("I'm playing this too"). Called from the button without a page reload. */
+export async function toggleTail(tipId: string, join: boolean): Promise<{ error?: string }> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "Log in first." };
+
+  const { error } = join
+    ? await supabase.from("tip_tails").insert({ tip_id: tipId })
+    : await supabase.from("tip_tails").delete().eq("tip_id", tipId).eq("user_id", user.id);
+
+  if (error && error.code !== "23505") {
+    return {
+      error: error.code === "42501" ? "Too late – the match has started (or it's your own tip)." : error.message,
+    };
+  }
+  revalidatePath("/");
+  return {};
+}

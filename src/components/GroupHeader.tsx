@@ -3,7 +3,7 @@ import { btnPrimary, Card } from "./ui";
 
 const TITLES = {
   tips: { title: "Spilforslag", sub: "Open and settled tips from the group" },
-  fixtures: { title: "Kampprogram", sub: "Top 5 leagues · next 10 days" },
+  fixtures: { title: "Kampprogram", sub: "Top 5 leagues + Champions League · next 10 days" },
   leaderboard: { title: "Leaderboard", sub: "Who has the best ROI?" },
 } as const;
 

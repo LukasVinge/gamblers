@@ -45,19 +45,22 @@ export function TopTabs() {
   );
 }
 
-/** Fixed tab bar at the bottom of the screen on phones, with a "+" for a new spilforslag. */
+/** Fixed tab bar at the bottom of the screen on phones. "Nyt spil" is a normal tab, just in the accent colour. */
 export function BottomTabs() {
   const pathname = usePathname();
   const [first, second, third] = TABS;
-  const tab = (t: (typeof TABS)[number]) => {
+  const tab = (t: { href: string; label: string; icon: string }, highlight = false) => {
     const active = isActive(pathname, t.href);
     return (
       <Link
         key={t.href}
         href={t.href}
         aria-current={active ? "page" : undefined}
-        className={`flex flex-1 flex-col items-center gap-0.5 py-2 text-[11px] font-medium ${active ? "text-accent" : "text-muted"}`}
+        className={`relative flex flex-1 flex-col items-center gap-1 pb-1.5 pt-2 text-[11px] font-medium transition ${
+          active || highlight ? "text-accent" : "text-muted"
+        }`}
       >
+        {active && <span className="absolute inset-x-5 top-0 h-0.5 rounded-full bg-accent" aria-hidden />}
         <Icon d={t.icon} />
         {t.label}
       </Link>
@@ -65,16 +68,10 @@ export function BottomTabs() {
   };
   return (
     <nav className="fixed inset-x-0 bottom-0 z-20 border-t border-line bg-surface/95 pb-[env(safe-area-inset-bottom)] backdrop-blur sm:hidden">
-      <div className="mx-auto flex max-w-md items-center px-2">
+      <div className="mx-auto flex max-w-md items-stretch px-1">
         {tab(first)}
         {tab(second)}
-        <Link
-          href="/new"
-          aria-label="Nyt spilforslag"
-          className="mx-1 -mt-5 grid h-12 w-12 shrink-0 place-items-center rounded-full bg-accent text-2xl font-light text-white shadow-lg shadow-accent/30 hover:bg-accent-hover"
-        >
-          +
-        </Link>
+        {tab({ href: "/new", label: "Nyt spil", icon: "M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2zM12 8v8M8 12h8" }, true)}
         {tab(third)}
       </div>
     </nav>

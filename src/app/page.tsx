@@ -4,17 +4,21 @@ import { deleteTip, regenerateInvite } from "./actions";
 import { createClient } from "@/lib/supabase/server";
 import { getMainGroup } from "@/lib/group";
 import { getBaseUrl } from "@/lib/url";
+import { getTails, type TailUser } from "@/lib/tails";
 import { inviteMessage, openTipsDigest } from "@/lib/shareText";
 import { TIP_SELECT, toTipView, type TipRow } from "@/lib/types";
 import { GroupHeader, NotInGroup } from "@/components/GroupHeader";
+import { SegmentedLinks } from "@/components/Segmented";
+import { Avatar } from "@/components/Avatar";
 import { RemoveMemberButton } from "@/components/RemoveMemberButton";
+import { TailButton } from "@/components/TailButton";
 import { SettleForm } from "@/components/SettleForm";
 import { ShareSheet } from "@/components/ShareSheet";
 import { TipCard } from "@/components/TipCard";
 import { btnGhost, btnPrimary, Card, Notice } from "@/components/ui";
 
 type View = "upcoming" | "settled" | "all";
-type Member = { user_id: string; role: string; profile: { username: string } | null };
+type Member = { user_id: string; role: string; profile: { username: string; avatar_url?: string | null } | null };
 
 function Landing() {
   return (
@@ -68,13 +72,20 @@ export default async function Home({
 
   const [{ data: tipRows }, { data: memberRows }, { count: totalTips }] = await Promise.all([
     tipsQuery,
-    supabase.from("group_members").select("user_id, role, profile:profiles(username)").eq("group_id", id).order("joined_at"),
+    supabase.from("group_members").select("user_id, role, profile:profiles(username, avatar_url)").eq("group_id", id).order("joined_at"),
     supabase.from("tips").select("id", { count: "exact", head: true }).eq("group_id", id),
   ]);
 
   const tips = ((tipRows ?? []) as unknown as TipRow[]).map(toTipView);
   const members = (memberRows ?? []) as unknown as Member[];
   const isAdmin = members.some((m) => m.user_id === user.id && m.role === "admin");
+
+  // 🤝 Who's on which tip + "me" for the instant toggle
+  const tails = await getTails(supabase, tips.map((t) => t.id));
+  const meMember = members.find((m) => m.user_id === user.id);
+  const me: TailUser | null = meMember
+    ? { user_id: user.id, username: meMember.profile?.username ?? "me", avatar_url: meMember.profile?.avatar_url ?? null }
+    : null;
 
   // Tip count per member – shown in the admin's "Remove" dialog.
   const tipCounts = new Map<string, number>();
@@ -156,27 +167,25 @@ export default async function Home({
         </div>
       )}
 
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex gap-2 text-sm">
-          {(["upcoming", "settled", "all"] as const).map((v) => (
-            <Link
-              key={v}
-              href={`/?view=${v}`}
-              className={`rounded-full px-3 py-1 capitalize ring-1 ${
-                v === view ? "bg-accent text-white ring-accent" : "bg-surface text-ink-2 ring-line hover:ring-line-strong"
-              }`}
-            >
-              {v}
-            </Link>
-          ))}
-        </div>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <SegmentedLinks
+          active={view}
+          className="sm:w-80"
+          items={[
+            { key: "upcoming", href: "/?view=upcoming", label: "Upcoming" },
+            { key: "settled", href: "/?view=settled", label: "Settled" },
+            { key: "all", href: "/?view=all", label: "All" },
+          ]}
+        />
         {view === "upcoming" && tips.length > 1 && (
-          <ShareSheet
-            size="sm"
-            label={`Share all ${tips.length} open tips`}
-            title="Share all open tips"
-            message={openTipsDigest(group.name, tips, (t) => tipUrl(t.share_slug))}
-          />
+          <div className="self-end sm:self-auto">
+            <ShareSheet
+              size="sm"
+              label={`Share all ${tips.length} open tips`}
+              title="Share all open tips"
+              message={openTipsDigest(group.name, tips, (t) => tipUrl(t.share_slug))}
+            />
+          </div>
         )}
       </div>
 
@@ -197,7 +206,18 @@ export default async function Home({
             const canDelete = t.author_id === user.id && t.status === "pending" && !started;
             return (
               <li key={t.id}>
-                <TipCard tip={t} shareUrl={tipUrl(t.share_slug)}>
+                <TipCard
+                  tip={t}
+                  shareUrl={tipUrl(t.share_slug)}
+                  social={
+                    <TailButton
+                      tipId={t.id}
+                      users={tails.get(t.id) ?? []}
+                      me={me}
+                      canTail={t.author_id !== user.id && t.status === "pending" && !started}
+                    />
+                  }
+                >
                   {canSettle && <SettleForm tipId={t.id} current={t.status} back={back} />}
                   {canDelete && (
                     <div className="flex items-center justify-between gap-3 border-t border-line pt-3">
@@ -241,9 +261,10 @@ export default async function Home({
             <ul className="divide-y divide-line text-sm">
               {members.map((m) => (
                 <li key={m.user_id} className="flex items-center justify-between gap-3 py-2">
-                  <span>
+                  <span className="flex items-center gap-2">
+                    <Avatar url={m.profile?.avatar_url} name={m.profile?.username ?? "?"} size={28} />
                     @{m.profile?.username}
-                    {m.role === "admin" && <span className="ml-1.5 text-xs text-accent">admin</span>}
+                    {m.role === "admin" && <span className="text-xs text-accent">admin</span>}
                     {m.user_id === user.id && <span className="ml-1.5 text-xs text-faint">(you)</span>}
                   </span>
                   {m.role !== "admin" && m.user_id !== user.id && (
@@ -260,7 +281,8 @@ export default async function Home({
           ) : (
             <ul className="flex flex-wrap gap-2 text-sm">
               {members.map((m) => (
-                <li key={m.user_id} className="rounded-full bg-subtle px-3 py-1">
+                <li key={m.user_id} className="flex items-center gap-1.5 rounded-full bg-subtle py-1 pl-1 pr-3">
+                  <Avatar url={m.profile?.avatar_url} name={m.profile?.username ?? "?"} size={22} />
                   @{m.profile?.username}
                   {m.role === "admin" && <span className="ml-1 text-xs text-accent">admin</span>}
                 </li>

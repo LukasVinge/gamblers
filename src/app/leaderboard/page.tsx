@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { getMainGroup } from "@/lib/group";
 import { fmtUnits, profitClass } from "@/lib/format";
@@ -6,7 +5,9 @@ import type { LeaderboardRow } from "@/lib/types";
 import { leaderboardMessage } from "@/lib/shareText";
 import { getBaseUrl } from "@/lib/url";
 import { GroupHeader, NotInGroup } from "@/components/GroupHeader";
+import { SegmentedLinks } from "@/components/Segmented";
 import { ShareSheet } from "@/components/ShareSheet";
+import { LeaderboardStandings } from "@/components/LeaderboardStandings";
 import { Card } from "@/components/ui";
 
 export const metadata = { title: "Leaderboard" };
@@ -50,77 +51,35 @@ export default async function LeaderboardPage({ searchParams }: { searchParams: 
     <div className="space-y-6">
       <GroupHeader active="leaderboard" />
 
-      <div className="flex gap-2 text-sm">
-        {PERIODS.map((p) => (
-          <Link
-            key={p.key}
-            href={`/leaderboard?period=${p.key}`}
-            className={`rounded-full px-3 py-1 ring-1 ${
-              p.key === period.key ? "bg-accent text-white ring-accent" : "bg-surface text-ink-2 ring-line hover:ring-line-strong"
-            }`}
-          >
-            {p.label}
-          </Link>
-        ))}
-      </div>
+      <SegmentedLinks
+        active={period.key}
+        className="sm:w-96"
+        items={PERIODS.map((p) => ({ key: p.key, href: `/leaderboard?period=${p.key}`, label: p.label }))}
+      />
 
-      <Card className="flex flex-wrap items-end justify-between gap-4 p-5">
-        <div>
+      <Card className="flex items-center justify-between gap-4 p-4 sm:p-5">
+        <div className="min-w-0">
           <p className="text-xs uppercase tracking-wide text-muted">Group profit · {period.label.toLowerCase()}</p>
-          <p className={`font-mono text-3xl font-bold ${profitClass(totalProfit)}`}>{fmtUnits(totalProfit)}</p>
+          <p className={`font-mono text-2xl font-bold sm:text-3xl ${profitClass(totalProfit)}`}>{fmtUnits(totalProfit)}</p>
           <p className="text-sm text-muted">{totalSettled} settled tips</p>
         </div>
         {totalSettled > 0 && (
-          <ShareSheet
-            label="Share standings"
-            title="Share the standings"
-            message={leaderboardMessage(group.name, period.label, [...ranked, ...unranked], ranked.length)}
-            url={`${await getBaseUrl()}/leaderboard?period=${period.key}`}
-          />
+          <div className="shrink-0">
+            <ShareSheet
+              size="sm"
+              label="Share"
+              title="Share the standings"
+              message={leaderboardMessage(group.name, period.label, [...ranked, ...unranked], ranked.length)}
+              url={`${await getBaseUrl()}/leaderboard?period=${period.key}`}
+            />
+          </div>
         )}
       </Card>
 
-      <Card className="overflow-x-auto">
-        <table className="w-full min-w-[560px] text-sm">
-          <thead>
-            <tr className="border-b border-line text-left text-xs uppercase tracking-wide text-muted">
-              <th className="px-4 py-3">#</th>
-              <th className="px-4 py-3">Tipster</th>
-              <th className="px-4 py-3 text-right">W–L–V</th>
-              <th className="px-4 py-3 text-right">Hit rate</th>
-              <th className="px-4 py-3 text-right">Staked</th>
-              <th className="px-4 py-3 text-right">Profit</th>
-              <th className="px-4 py-3 text-right">ROI</th>
-            </tr>
-          </thead>
-          <tbody>
-            {[...ranked, ...unranked].map((r, i) => {
-              const isRanked = i < ranked.length;
-              return (
-                <tr key={r.user_id} className={`border-b border-line last:border-0 ${isRanked ? "" : "text-muted"}`}>
-                  <td className="px-4 py-3 font-mono">{isRanked ? i + 1 : "–"}</td>
-                  <td className="px-4 py-3 font-medium">
-                    @{r.username}
-                    {r.pending > 0 && <span className="ml-2 text-xs text-warn">{r.pending} open</span>}
-                  </td>
-                  <td className="px-4 py-3 text-right font-mono">
-                    {r.wins}–{r.losses}–{r.voids}
-                  </td>
-                  <td className="px-4 py-3 text-right font-mono">{r.hit_rate === null ? "—" : `${Number(r.hit_rate)}%`}</td>
-                  <td className="px-4 py-3 text-right font-mono">{r.staked.toFixed(1)}u</td>
-                  <td className={`px-4 py-3 text-right font-mono ${profitClass(r.profit)}`}>{fmtUnits(r.profit)}</td>
-                  <td className={`px-4 py-3 text-right font-mono font-semibold ${profitClass(r.roi)}`}>
-                    {r.roi === null ? "—" : `${r.roi > 0 ? "+" : ""}${r.roi.toFixed(1)}%`}
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </Card>
+      <LeaderboardStandings ranked={ranked} unranked={unranked} minSettled={MIN_SETTLED} />
+
       <p className="text-xs text-muted">
-        Ranked by ROI (profit ÷ staked). You need {MIN_SETTLED}+ settled tips in the period to be ranked. Boosted odds count
-        when present; voids don&apos;t count towards staked or hit rate.
+        Ranked by ROI (profit ÷ staked) · {MIN_SETTLED}+ settled tips needed · W–L–V = won–lost–void
       </p>
     </div>
   );

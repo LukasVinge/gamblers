@@ -5,11 +5,12 @@
 const API = "https://api.football-data.org/v4";
 
 export const COMPETITIONS = [
-  { code: "PL", name: "Premier League", weight: 3 },
-  { code: "PD", name: "La Liga", weight: 2.5 },
-  { code: "BL1", name: "Bundesliga", weight: 2.5 },
-  { code: "SA", name: "Serie A", weight: 2.5 },
-  { code: "FL1", name: "Ligue 1", weight: 2 },
+  { code: "PL", name: "Premier League" },
+  { code: "CL", name: "Champions League" },
+  { code: "PD", name: "La Liga" },
+  { code: "BL1", name: "Bundesliga" },
+  { code: "SA", name: "Serie A" },
+  { code: "FL1", name: "Ligue 1" },
 ] as const;
 
 const LEAGUES_WITH_TABLES = ["PL", "PD", "BL1", "SA", "FL1"];
@@ -94,24 +95,122 @@ export async function getTablePositions(): Promise<Map<number, number>> {
   return positions;
 }
 
-const GROUP_STAGES = new Set(["REGULAR_SEASON", "LEAGUE_STAGE", "GROUP_STAGE"]);
-
-/** How "big" a game is: competition weight + table positions + knockout bonus. */
-export function importance(m: Match, positions: Map<number, number>) {
-  let score: number = COMP[m.competition.code]?.weight ?? 1;
-  const ph = positions.get(m.homeTeam.id);
-  const pa = positions.get(m.awayTeam.id);
-  if (ph && pa) {
-    if (ph <= 4 && pa <= 4) score += 4;
-    else if (ph <= 6 && pa <= 6) score += 2.5;
-    else if (ph <= 4 || pa <= 4) score += 1;
-    if (ph <= 6 && Math.abs(ph - pa) <= 2) score += 0.5; // close race at the top
+/** This season's Champions League clubs (team ids, cached 1 day). Empty set if it can't be loaded. */
+export async function getChampionsLeagueTeams(): Promise<Set<number>> {
+  try {
+    const data = await api<{ teams: { id: number }[] }>(`/competitions/CL/teams`, 86_400);
+    return new Set(data.teams.map((t) => t.id));
+  } catch {
+    return new Set();
   }
-  if (m.stage && !GROUP_STAGES.has(m.stage)) score += 3; // knockout game
-  return score;
 }
 
-export const BIG_GAME_THRESHOLD = 5.5;
+// ───────── Storkampe ─────────
+// Rules:
+//  * Premier League first: a PL game is a Storkamp if both clubs are "big" (Big Six or currently top 6)
+//    or it's a PL derby. PL games always rank above the other leagues.
+//  * Other leagues only when both clubs play in this season's Champions League, or it's a big derby.
+
+/** Arsenal, Chelsea, Liverpool, Man City, Man United, Tottenham (football-data.org team ids). */
+const BIG_SIX = new Set([57, 61, 64, 65, 66, 73]);
+
+const DERBIES: [number, number, string][] = [
+  // Premier League
+  [57, 73, "North London derby"],
+  [62, 64, "Merseyside derby"],
+  [65, 66, "Manchester derby"],
+  [64, 66, "North West derby"],
+  [67, 71, "Tyne–Wear derby"],
+  [61, 73, "London derby"],
+  [57, 61, "London derby"],
+  [354, 397, "M23 derby"],
+  [66, 341, "Roses derby"],
+  // La Liga
+  [81, 86, "El Clásico"],
+  [78, 86, "Madrid derby"],
+  [90, 559, "Seville derby"],
+  [77, 92, "Basque derby"],
+  [80, 81, "Barcelona derby"],
+  [94, 95, "Valencian derby"],
+  // Bundesliga
+  [4, 5, "Der Klassiker"],
+  [4, 6, "Revierderby"],
+  [1, 18, "Rheinderby"],
+  [7, 12, "Nordderby"],
+  // Serie A
+  [98, 108, "Derby della Madonnina"],
+  [108, 109, "Derby d'Italia"],
+  [100, 110, "Derby della Capitale"],
+  [109, 586, "Derby della Mole"],
+  [107, 584, "Derby della Lanterna"],
+  [100, 113, "Derby del Sole"],
+  // Ligue 1
+  [516, 524, "Le Classique"],
+  [523, 527, "Derby du Rhône"],
+  [521, 546, "Derby du Nord"],
+  [516, 523, "Olympico"],
+  [524, 1045, "Paris derby"],
+  [522, 548, "Derby de la Côte d'Azur"],
+];
+const pairKey = (a: number, b: number) => (a < b ? `${a}-${b}` : `${b}-${a}`);
+const DERBY_NAME = new Map(DERBIES.map(([a, b, name]) => [pairKey(a, b), name]));
+
+/** Big European clubs (besides the Big Six) that make a CL league-stage game a Storkamp:
+ *  Real Madrid, Barcelona, Atlético, Bayern, Dortmund, PSG, Inter, Milan, Juventus, Napoli. */
+const EUROPEAN_GIANTS = new Set([86, 81, 78, 5, 4, 524, 108, 98, 109, 113]);
+
+const CL_STAGE_NAMES: Record<string, string> = {
+  PLAYOFFS: "knockout play-off",
+  LAST_16: "round of 16",
+  QUARTER_FINALS: "quarter-final",
+  SEMI_FINALS: "semi-final",
+  FINAL: "final",
+};
+
+/** Tie-breaker between leagues outside the PL. */
+const LEAGUE_BONUS: Record<string, number> = { PD: 3, BL1: 2, SA: 2, FL1: 1 };
+
+const ordinal = (n: number) => `${n}${["th", "st", "nd", "rd"][n % 100 > 10 && n % 100 < 14 ? 0 : Math.min(n % 10, 4) % 4] ?? "th"}`;
+
+export type BigGame = { score: number; reason: string };
+
+/** Returns why a match is a Storkamp (and how big), or null if it isn't one. */
+export function bigGame(m: Match, ctx: { positions: Map<number, number>; clTeams: Set<number> }): BigGame | null {
+  const h = m.homeTeam.id;
+  const a = m.awayTeam.id;
+  const derby = DERBY_NAME.get(pairKey(h, a));
+  const bothCL = ctx.clTeams.has(h) && ctx.clTeams.has(a);
+  const ph = ctx.positions.get(h);
+  const pa = ctx.positions.get(a);
+  const tableBonus = ph && pa ? (ph <= 4 && pa <= 4 ? 4 : ph <= 6 && pa <= 6 ? 2 : 0) - (ph + pa) / 20 : 0;
+
+  if (m.competition.code === "CL") {
+    // Knockout games always count; in the league stage only clashes between heavyweights.
+    const stage = m.stage ?? "LEAGUE_STAGE";
+    const knockout = !["LEAGUE_STAGE", "GROUP_STAGE", "REGULAR_SEASON"].includes(stage);
+    const heavy = (id: number, pos?: number) => BIG_SIX.has(id) || EUROPEAN_GIANTS.has(id) || (pos !== undefined && pos <= 4);
+    if (!knockout && !derby && !(heavy(h, ph) && heavy(a, pa))) return null;
+    const stageName = CL_STAGE_NAMES[stage];
+    return {
+      score: (stage === "FINAL" ? 120 : stage === "SEMI_FINALS" ? 95 : knockout ? 88 : 80) + (derby ? 3 : 0),
+      reason: derby ?? (knockout ? `Champions League ${stageName ?? "knockout"}` : "Champions League heavyweights"),
+    };
+  }
+
+  if (m.competition.code === "PL") {
+    const big = (id: number, pos?: number) => BIG_SIX.has(id) || (pos !== undefined && pos <= 6);
+    if (!derby && !(big(h, ph) && big(a, pa))) return null;
+    const reason =
+      derby ?? (ph && pa && ph <= 6 && pa <= 6 ? `Top-6 clash · ${ordinal(ph)} vs ${ordinal(pa)}` : "Big Six clash");
+    return { score: 100 + (derby ? 5 : 0) + tableBonus + (bothCL ? 1 : 0), reason };
+  }
+
+  if (!derby && !bothCL) return null;
+  return {
+    score: 50 + (LEAGUE_BONUS[m.competition.code] ?? 0) + (derby ? 5 : 0) + (bothCL ? 3 : 0) + tableBonus,
+    reason: derby ?? "Both in the Champions League",
+  };
+}
 
 export function teamName(t: Team) {
   return t.shortName || t.name;

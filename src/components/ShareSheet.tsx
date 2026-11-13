@@ -67,14 +67,26 @@ export function ShareSheet({ title, message, url, variant = "button", label = "S
   );
 }
 
+function MessengerIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="currentColor" className="h-5 w-5" aria-hidden>
+      <path d="M12 2C6.36 2 2 6.13 2 11.7c0 2.91 1.19 5.44 3.14 7.17.16.14.26.35.27.57l.05 1.78c.02.57.6.94 1.12.71l1.99-.88c.17-.07.36-.09.54-.04.91.25 1.88.39 2.89.39 5.64 0 10-4.13 10-9.7S17.64 2 12 2zm5.95 7.46-2.94 4.66c-.47.74-1.47.93-2.17.4l-2.34-1.75a.6.6 0 0 0-.72 0l-3.16 2.4c-.42.32-.97-.18-.69-.63l2.94-4.66c.47-.74 1.47-.93 2.17-.4l2.34 1.75a.6.6 0 0 0 .72 0l3.16-2.4c.42-.32.97.18.69.63z" />
+    </svg>
+  );
+}
+
 function SharePanel({ message, url, title, qrSvg }: { message: string; url?: string; title: string; qrSvg?: string }) {
   const [text, setText] = useState(message);
   const [canShare, setCanShare] = useState(false);
   const [copied, setCopied] = useState<"" | "msg" | "link">("");
   const [showQr, setShowQr] = useState(false);
+  const [isPhone, setIsPhone] = useState(false);
+  const [notice, setNotice] = useState("");
 
   useEffect(() => {
     setCanShare(typeof navigator !== "undefined" && typeof navigator.share === "function");
+    const ua = navigator.userAgent;
+    setIsPhone(/Android|iPhone|iPad|iPod/i.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1));
   }, []);
 
   const full = url ? `${text.trim()}\n${url}` : text.trim();
@@ -98,11 +110,20 @@ function SharePanel({ message, url, title, qrSvg }: { message: string; url?: str
     }
   }
 
-  const apps = [
-    { name: "WhatsApp", dot: "bg-[#25D366]", href: `https://wa.me/?text=${enc(full)}` },
-    { name: "Telegram", dot: "bg-[#229ED9]", href: url ? `https://t.me/share/url?url=${enc(url)}&text=${enc(text.trim())}` : `https://t.me/share/url?url=${enc(" ")}&text=${enc(full)}` },
-    { name: "SMS", dot: "bg-faint", href: `sms:?&body=${enc(full)}` },
-  ];
+  /** Phone only: open the Messenger app with the link (the full message is copied too, to paste if wanted). */
+  async function shareMessenger() {
+    try {
+      await navigator.clipboard.writeText(full);
+    } catch {
+      // clipboard not allowed – the link is still shared
+    }
+    setNotice(
+      url
+        ? "Opening Messenger… The message text is copied too – paste it in the chat if you want it. If nothing opens, open Messenger yourself and paste."
+        : "Message copied ✓ – opening Messenger, pick a chat and paste.",
+    );
+    window.location.href = url ? `fb-messenger://share/?link=${enc(url)}` : "fb-messenger://";
+  }
 
   const tile =
     "flex items-center justify-center gap-2 rounded-xl bg-subtle px-3 py-2.5 text-sm font-medium text-ink ring-1 ring-line transition hover:bg-line";
@@ -121,32 +142,32 @@ function SharePanel({ message, url, title, qrSvg }: { message: string; url?: str
         <span className="mt-1 block text-xs text-muted">You can edit the message before sending.</span>
       </label>
 
-      {canShare && (
-        <button type="button" onClick={nativeShare} className="flex w-full items-center justify-center gap-2 rounded-xl bg-accent px-4 py-3 text-sm font-semibold text-white hover:bg-accent-hover">
-          <ShareIcon />
-          Share to Messenger, Discord, …
+      {isPhone && (
+        <button
+          type="button"
+          onClick={shareMessenger}
+          className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#0084FF] px-4 py-3 text-sm font-semibold text-white hover:bg-[#0074e0]"
+        >
+          <MessengerIcon />
+          Send via Messenger
         </button>
       )}
 
-      <div className="grid grid-cols-3 gap-2">
-        {apps.map((a) => (
-          <a key={a.name} href={a.href} target="_blank" rel="noopener noreferrer" className={tile}>
-            <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${a.dot}`} aria-hidden />
-            {a.name}
-          </a>
-        ))}
-      </div>
+      <button
+        type="button"
+        onClick={() => copy(full, "msg")}
+        className={isPhone ? `${tile} w-full` : "flex w-full items-center justify-center gap-2 rounded-xl bg-accent px-4 py-3 text-sm font-semibold text-white hover:bg-accent-hover"}
+      >
+        {copied === "msg" ? "Copied ✓ – paste it in your chat" : "Copy message"}
+      </button>
 
-      <div className={`grid gap-2 ${url ? "grid-cols-2" : "grid-cols-1"}`}>
-        <button type="button" onClick={() => copy(full, "msg")} className={tile}>
-          {copied === "msg" ? "Copied ✓" : "Copy message"}
+      {isPhone && canShare && (
+        <button type="button" onClick={nativeShare} className="w-full text-center text-sm text-muted hover:text-ink">
+          Other apps…
         </button>
-        {url && (
-          <button type="button" onClick={() => copy(url, "link")} className={tile}>
-            {copied === "link" ? "Copied ✓" : "Copy link only"}
-          </button>
-        )}
-      </div>
+      )}
+
+      {notice && <p className="rounded-lg bg-accent-soft px-3 py-2 text-xs text-accent-ink">{notice}</p>}
 
       {qrSvg && (
         <div className="space-y-2">

@@ -88,9 +88,15 @@ export default async function Image({ params }: { params: { slug: string } | Pro
               <span style={{ fontSize: 22, color: C.muted }}>Stake</span>
               <span style={{ fontSize: 34, fontWeight: 700 }}>{fmtStake(tip.stake_units)}</span>
             </div>
-            <div style={{ display: "flex", flexDirection: "column", paddingBottom: 14, marginLeft: "auto" }}>
-              <span style={{ fontSize: 22, color: C.muted }}>Tipster</span>
-              <span style={{ fontSize: 34, fontWeight: 700 }}>@{tip.author_username}</span>
+            <div style={{ display: "flex", alignItems: "center", gap: 16, paddingBottom: 14, marginLeft: "auto" }}>
+              {tip.author_avatar ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={tip.author_avatar} width={64} height={64} style={{ borderRadius: 999, objectFit: "cover" }} alt="" />
+              ) : null}
+              <div style={{ display: "flex", flexDirection: "column" }}>
+                <span style={{ fontSize: 22, color: C.muted }}>Tipster</span>
+                <span style={{ fontSize: 34, fontWeight: 700 }}>@{tip.author_username}</span>
+              </div>
             </div>
           </div>
         </div>

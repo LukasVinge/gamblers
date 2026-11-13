@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
+import { Avatar } from "@/components/Avatar";
 import { BottomTabs, TopTabs } from "@/components/NavTabs";
 import { signOut } from "./actions";
 import "./globals.css";
@@ -20,6 +21,14 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
     data: { user },
   } = await supabase.auth.getUser();
 
+  // Your own name + picture for the top bar.
+  let me: { username: string; avatar_url?: string | null } | null = null;
+  if (user) {
+    const { data, error } = await supabase.from("profiles").select("username, avatar_url").eq("id", user.id).maybeSingle();
+    if (!error) me = data;
+    else me = (await supabase.from("profiles").select("username").eq("id", user.id).maybeSingle()).data; // before migration 0007
+  }
+
   return (
     <html lang="en">
       <body className={`${geistSans.variable} ${geistMono.variable} font-sans antialiased`}>
@@ -31,11 +40,19 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
               </Link>
               {user && <TopTabs />}
             </div>
-            <div className="flex items-center">
+            <div className="flex items-center gap-3">
               {user ? (
-                <form action={signOut}>
-                  <button className="text-sm text-muted hover:text-ink">Log out</button>
-                </form>
+                <>
+                  {me && (
+                    <Link href="/profile" className="flex items-center gap-2 rounded-full py-1 pl-1 pr-2 text-sm font-medium text-ink-2 hover:bg-subtle" title="Your profile">
+                      <Avatar url={me.avatar_url} name={me.username} size={30} />
+                      <span className="hidden sm:inline">@{me.username}</span>
+                    </Link>
+                  )}
+                  <form action={signOut}>
+                    <button className="text-sm text-muted hover:text-ink">Log out</button>
+                  </form>
+                </>
               ) : (
                 <Link href="/login" className="text-sm font-medium text-accent hover:text-accent-hover">
                   Log in

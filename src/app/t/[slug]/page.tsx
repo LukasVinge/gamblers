@@ -8,7 +8,9 @@ import { getBaseUrl } from "@/lib/url";
 import { SettleForm } from "@/components/SettleForm";
 import { tipMessage } from "@/lib/shareText";
 import { ShareSheet } from "@/components/ShareSheet";
+import { TailButton } from "@/components/TailButton";
 import { TipCard } from "@/components/TipCard";
+import { getTails, type TailUser } from "@/lib/tails";
 import { Card, Notice } from "@/components/ui";
 
 type Props = {
@@ -55,6 +57,20 @@ export default async function SharedTipPage({ params, searchParams }: Props) {
       (tip.author_id === user.id || Boolean(admin)) && (Date.parse(tip.kickoff_at) <= Date.now() || tip.status !== "pending");
   }
 
+  // 🤝 Who's on this tip (members only)
+  let tailUsers: TailUser[] = [];
+  let me: TailUser | null = null;
+  if (user && isMember) {
+    const [tails, { data: myProfile }] = await Promise.all([
+      getTails(supabase, [tip.id]),
+      supabase.from("profiles").select("username, avatar_url").eq("id", user.id).maybeSingle(),
+    ]);
+    tailUsers = tails.get(tip.id) ?? [];
+    const p = myProfile as { username: string; avatar_url?: string | null } | null;
+    me = { user_id: user.id, username: p?.username ?? "me", avatar_url: p?.avatar_url ?? null };
+  }
+  const canTail = Boolean(me) && tip.author_id !== user?.id && tip.status === "pending" && Date.parse(tip.kickoff_at) > Date.now();
+
   const url = `${await getBaseUrl()}/t/${tip.share_slug}`;
 
   return (
@@ -73,7 +89,12 @@ export default async function SharedTipPage({ params, searchParams }: Props) {
         )}
       </p>
 
-      <TipCard tip={tip} linkToShare={false} showReasoning>
+      <TipCard
+        tip={tip}
+        linkToShare={false}
+        showReasoning
+        social={isMember ? <TailButton tipId={tip.id} users={tailUsers} me={me} canTail={canTail} /> : undefined}
+      >
         {canSettle && <SettleForm tipId={tip.id} current={tip.status} back={`/t/${tip.share_slug}`} />}
         {canEdit && (
           <div className="flex items-center justify-between gap-3 border-t border-line pt-3">

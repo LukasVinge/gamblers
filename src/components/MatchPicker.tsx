@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
+import { LeagueLabel, segmentBarClass, segmentClass } from "./Segmented";
 import { TeamLogo } from "./TeamLogo";
 import { matchesQuery, norm } from "@/lib/search";
 
@@ -63,17 +64,10 @@ export function MatchPicker({ matches, leagues }: { matches: PickerMatch[]; leag
         />
       </div>
 
-      <div className="flex flex-wrap gap-2 py-0.5 text-sm">
+      <div className={segmentBarClass}>
         {[{ code: null as string | null, name: "All" }, ...leagues].map((l) => (
-          <button
-            key={l.code ?? "all"}
-            type="button"
-            onClick={() => setLeague(l.code)}
-            className={`rounded-full px-3 py-1 ring-1 transition ${
-              l.code === league ? "bg-accent text-white ring-accent" : "bg-surface text-ink-2 ring-line hover:ring-line-strong"
-            }`}
-          >
-            {l.name}
+          <button key={l.code ?? "all"} type="button" title={l.name} onClick={() => setLeague(l.code)} className={segmentClass(l.code === league)}>
+            {l.code ? <LeagueLabel code={l.code} name={l.name} /> : l.name}
           </button>
         ))}
       </div>
@@ -81,7 +75,7 @@ export function MatchPicker({ matches, leagues }: { matches: PickerMatch[]; leag
       {results.length === 0 ? (
         <div className="rounded-2xl border border-dashed border-line-strong bg-surface p-6 text-center text-sm text-muted">
           {matches.length === 0
-            ? "No top-5-league matches in the next 10 days."
+            ? "No matches in the next 10 days."
             : `No match found${query ? ` for “${query}”` : ""}.`}{" "}
           <Link href="/new?manual=1" className="font-medium text-accent hover:underline">
             Enter the match manually

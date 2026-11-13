@@ -2,19 +2,21 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { getMainGroup } from "@/lib/group";
 import {
-  BIG_GAME_THRESHOLD,
   COMPETITIONS,
   FootballDataError,
+  bigGame,
   competitionName,
+  getChampionsLeagueTeams,
   getTablePositions,
   getUpcomingMatches,
   hasApiKey,
-  importance,
   teamName,
+  type BigGame,
   type Match,
 } from "@/lib/footballData";
 import { dayKey, dayLabel, timeOf } from "@/lib/fixtureFormat";
 import { GroupHeader, NotInGroup } from "@/components/GroupHeader";
+import { LeagueLabel, SegmentedLinks } from "@/components/Segmented";
 import { TeamLogo } from "@/components/TeamLogo";
 import { Card, Notice } from "@/components/ui";
 
@@ -57,30 +59,36 @@ function NewTipButton({ m, label = "+ Tip" }: { m: Match; label?: string }) {
   );
 }
 
-function BigGameCard({ m, tips }: { m: Match; tips: number }) {
+function BigGameCard({ m, tips, reason, featured = false }: { m: Match; tips: number; reason: string; featured?: boolean }) {
+  const logo = featured ? 64 : 48;
   return (
-    <Card className="space-y-4 p-4">
+    <Card className={`space-y-4 p-4 ${featured ? "border-accent/40 bg-gradient-to-b from-accent-soft to-surface p-5 sm:p-6" : ""}`}>
       <div className="flex items-center justify-between gap-2 text-xs text-muted">
         <span className="inline-flex items-center gap-1.5">
           <TeamLogo src={m.competition.emblem} name={m.competition.name} size={16} />
           {competitionName(m.competition.code, m.competition.name)}
         </span>
-        <span className="rounded-full bg-warn-soft px-2 py-0.5 font-semibold text-warn">⭐ Storkamp</span>
+        <span
+          className={`rounded-full px-2 py-0.5 font-semibold ${featured ? "bg-accent text-white" : "bg-warn-soft text-warn"}`}
+        >
+          {featured ? "🏆 Match of the week" : "⭐ Storkamp"}
+        </span>
       </div>
       <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2 text-center">
         <div className="flex flex-col items-center gap-2">
-          <TeamLogo src={m.homeTeam.crest} name={teamName(m.homeTeam)} size={48} />
-          <span className="text-sm font-semibold leading-tight">{teamName(m.homeTeam)}</span>
+          <TeamLogo src={m.homeTeam.crest} name={teamName(m.homeTeam)} size={logo} />
+          <span className={`font-semibold leading-tight ${featured ? "text-base" : "text-sm"}`}>{teamName(m.homeTeam)}</span>
         </div>
         <div className="flex flex-col items-center gap-0.5">
           <ScoreOrTime m={m} />
           <span className="text-[11px] text-muted">{dayLabel(dayKey(m.utcDate))}</span>
         </div>
         <div className="flex flex-col items-center gap-2">
-          <TeamLogo src={m.awayTeam.crest} name={teamName(m.awayTeam)} size={48} />
-          <span className="text-sm font-semibold leading-tight">{teamName(m.awayTeam)}</span>
+          <TeamLogo src={m.awayTeam.crest} name={teamName(m.awayTeam)} size={logo} />
+          <span className={`font-semibold leading-tight ${featured ? "text-base" : "text-sm"}`}>{teamName(m.awayTeam)}</span>
         </div>
       </div>
+      <p className="text-center text-xs font-medium text-ink-2">{reason}</p>
       <div className="flex items-center justify-between gap-2">
         <TipsLink id={m.id} count={tips} />
         <span className="ml-auto">
@@ -91,7 +99,7 @@ function BigGameCard({ m, tips }: { m: Match; tips: number }) {
   );
 }
 
-function MatchRow({ m, tips, big }: { m: Match; tips: number; big: boolean }) {
+function MatchRow({ m, tips, big }: { m: Match; tips: number; big?: string }) {
   return (
     <li className="flex items-center gap-3 px-4 py-3">
       <div className="w-14 shrink-0 text-center">
@@ -109,7 +117,7 @@ function MatchRow({ m, tips, big }: { m: Match; tips: number; big: boolean }) {
       </div>
       <div className="flex shrink-0 flex-col items-end gap-1.5">
         <span className="inline-flex items-center gap-1 text-[11px] text-muted">
-          {big && <span title="Storkamp">⭐</span>}
+          {big && <span title={`Storkamp: ${big}`}>⭐</span>}
           {competitionName(m.competition.code, m.competition.name)}
         </span>
         <div className="flex items-center gap-1.5">
@@ -164,9 +172,10 @@ export default async function KampprogramPage({ searchParams }: { searchParams: 
 
   let matches: Match[] = [];
   let positions = new Map<number, number>();
+  let clTeams = new Set<number>();
   let problem: string | undefined;
   try {
-    [matches, positions] = await Promise.all([getUpcomingMatches(10), getTablePositions()]);
+    [matches, positions, clTeams] = await Promise.all([getUpcomingMatches(10), getTablePositions(), getChampionsLeagueTeams()]);
   } catch (e) {
     problem =
       e instanceof FootballDataError && e.kind === "rate-limit"
@@ -175,13 +184,19 @@ export default async function KampprogramPage({ searchParams }: { searchParams: 
   }
 
   const visible = matches.filter((m) => !comp || m.competition.code === comp);
-  const scored = visible.map((m) => ({ m, score: importance(m, positions) }));
-  const bigIds = new Set(scored.filter((x) => x.score >= BIG_GAME_THRESHOLD).map((x) => x.m.id));
-  const bigGames = scored
-    .filter((x) => bigIds.has(x.m.id) && (UPCOMING.has(x.m.status) || LIVE.has(x.m.status)))
-    .sort((a, b) => b.score - a.score || a.m.utcDate.localeCompare(b.m.utcDate))
-    .slice(0, 6)
-    .map((x) => x.m);
+  const bigInfo = new Map<number, BigGame>();
+  for (const m of visible) {
+    const b = bigGame(m, { positions, clTeams });
+    if (b) bigInfo.set(m.id, b);
+  }
+  const bigGames = visible
+    .filter((m) => bigInfo.has(m.id) && (UPCOMING.has(m.status) || LIVE.has(m.status)))
+    .sort((a, b) => bigInfo.get(b.id)!.score - bigInfo.get(a.id)!.score || a.utcDate.localeCompare(b.utcDate));
+
+  // Match of the week = the biggest game in the next 7 days (falls back to the biggest one shown).
+  const weekEnd = Date.now() + 7 * 86_400_000;
+  const matchOfWeek = bigGames.find((m) => Date.parse(m.utcDate) <= weekEnd) ?? bigGames[0];
+  const otherBig = bigGames.filter((m) => m !== matchOfWeek).slice(0, 6);
 
   // How many tips the group already has on each fixture (ignored if migration 0003 isn't run yet)
   const counts = new Map<number, number>();
@@ -207,26 +222,29 @@ export default async function KampprogramPage({ searchParams }: { searchParams: 
       <GroupHeader active="fixtures" />
       <Notice error={problem} />
 
-      <div className="flex flex-wrap gap-2 py-1 text-sm">
-        {[{ code: null, name: "All" }, ...COMPETITIONS].map((c) => (
-          <Link
-            key={c.code ?? "all"}
-            href={c.code ? `/kampprogram?comp=${c.code}` : "/kampprogram"}
-            className={`shrink-0 rounded-full px-3 py-1 ring-1 ${
-              c.code === comp ? "bg-accent text-white ring-accent" : "bg-surface text-ink-2 ring-line hover:ring-line-strong"
-            }`}
-          >
-            {c.name}
-          </Link>
-        ))}
-      </div>
+      <SegmentedLinks
+        active={comp ?? "all"}
+        items={[
+          { key: "all", href: "/kampprogram", label: "All" },
+          ...COMPETITIONS.map((c) => ({
+            key: c.code,
+            href: `/kampprogram?comp=${c.code}`,
+            title: c.name,
+            label: <LeagueLabel code={c.code} name={c.name} />,
+          })),
+        ]}
+      />
 
-      {bigGames.length > 0 && (
+      {matchOfWeek && (
+        <BigGameCard m={matchOfWeek} tips={counts.get(matchOfWeek.id) ?? 0} reason={bigInfo.get(matchOfWeek.id)!.reason} featured />
+      )}
+
+      {otherBig.length > 0 && (
         <section className="space-y-3">
           <h2 className="text-sm font-semibold uppercase tracking-wide text-muted">Storkampe coming up</h2>
           <div className="grid gap-3 sm:grid-cols-2">
-            {bigGames.map((m) => (
-              <BigGameCard key={m.id} m={m} tips={counts.get(m.id) ?? 0} />
+            {otherBig.map((m) => (
+              <BigGameCard key={m.id} m={m} tips={counts.get(m.id) ?? 0} reason={bigInfo.get(m.id)!.reason} />
             ))}
           </div>
         </section>
@@ -244,16 +262,12 @@ export default async function KampprogramPage({ searchParams }: { searchParams: 
           <Card className="overflow-hidden">
             <ul className="divide-y divide-line">
               {list.map((m) => (
-                <MatchRow key={m.id} m={m} tips={counts.get(m.id) ?? 0} big={bigIds.has(m.id)} />
+                <MatchRow key={m.id} m={m} tips={counts.get(m.id) ?? 0} big={bigInfo.get(m.id)?.reason} />
               ))}
             </ul>
           </Card>
         </section>
       ))}
-
-      <p className="text-xs text-muted">
-        Fixtures &amp; logos from football-data.org, refreshed every 10 minutes. ⭐ Storkamp = clashes between teams near the top of the table.
-      </p>
     </div>
   );
 }

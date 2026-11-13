@@ -4,6 +4,7 @@ import type { TipView } from "@/lib/types";
 import { fmtKickoff, fmtOdds, fmtStake, fmtUnits, profitClass, STATUS_CLASS, STATUS_LABEL, tipProfit } from "@/lib/format";
 import { tipMessage, sportEmoji } from "@/lib/shareText";
 import { ShareSheet } from "./ShareSheet";
+import { Avatar } from "./Avatar";
 import { TeamLogo } from "./TeamLogo";
 import { Card } from "./ui";
 
@@ -20,6 +21,7 @@ export function TipCard({
   linkToShare = true,
   showReasoning = false,
   shareUrl,
+  social,
   children,
 }: {
   tip: TipView;
@@ -27,6 +29,8 @@ export function TipCard({
   showReasoning?: boolean;
   /** When set, shows a one-tap Share button with a ready-made chat message. */
   shareUrl?: string;
+  /** "🤝 I'm on it" row (shown under the pick). */
+  social?: ReactNode;
   children?: ReactNode;
 }) {
   const profit = tipProfit(tip);
@@ -60,8 +64,9 @@ export function TipCard({
           ) : (
             selection
           )}
-          <p className="text-sm text-muted">
-            by @{tip.author_username}
+          <p className="flex items-center gap-1.5 text-sm text-muted">
+            <Avatar url={tip.author_avatar} name={tip.author_username} size={20} />
+            @{tip.author_username}
             {tip.edited_at && <span className="text-faint"> · edited</span>}
           </p>
         </div>
@@ -81,6 +86,8 @@ export function TipCard({
       {showReasoning && tip.reasoning && (
         <p className="mx-4 mb-4 whitespace-pre-line rounded-lg bg-subtle p-3 text-sm text-ink-2">{tip.reasoning}</p>
       )}
+
+      {social && <div className="px-4 pb-3">{social}</div>}
 
       {/* Meta + result */}
       <div className="flex flex-wrap items-center justify-between gap-2 border-t border-line px-4 py-2.5 text-sm">

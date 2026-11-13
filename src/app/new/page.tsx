@@ -137,7 +137,7 @@ export default async function NewTipPage({
         >
           <span>
             <span className="block font-semibold">Other league or sport</span>
-            <span className="block text-sm text-muted">Superliga, Champions League, tennis… – enter the teams, date and time yourself</span>
+            <span className="block text-sm text-muted">Superliga, Europa League, tennis… – enter the teams, date and time yourself</span>
           </span>
           <span className="shrink-0 text-lg font-semibold text-accent" aria-hidden>
             →
@@ -145,7 +145,7 @@ export default async function NewTipPage({
         </Link>
 
         <div className="space-y-2">
-          <h2 className="text-sm font-semibold text-ink-2">…or pick a top-5-league match</h2>
+          <h2 className="text-sm font-semibold text-ink-2">…or pick a match from the top 5 leagues or the Champions League</h2>
           <MatchPicker matches={picker} leagues={COMPETITIONS.map((c) => ({ code: c.code, name: c.name }))} />
         </div>
       </div>

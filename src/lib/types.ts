@@ -9,6 +9,8 @@ export type TipView = {
   group_id: string;
   author_id: string;
   author_username: string;
+  /** Tipster's profile picture (null = initials). */
+  author_avatar?: string | null;
   sport: string;
   league: string | null;
   home_team: string;
@@ -35,17 +37,18 @@ export type TipView = {
 
 /** Row from `tips` with embedded author + bookmaker (see TIP_SELECT). */
 export type TipRow = Omit<TipView, "author_username" | "bookmaker_name" | "bookmaker_url"> & {
-  author: { username: string } | null;
+  author: { username: string; avatar_url?: string | null } | null;
   bookmaker: { name: string; url: string | null } | null;
 };
 
-export const TIP_SELECT = "*, author:profiles!tips_author_id_fkey(username), bookmaker:bookmakers(name,url)";
+export const TIP_SELECT = "*, author:profiles!tips_author_id_fkey(username, avatar_url), bookmaker:bookmakers(name,url)";
 
 export function toTipView(r: TipRow): TipView {
   const { author, bookmaker, ...rest } = r;
   return {
     ...rest,
     author_username: author?.username ?? "former member",
+    author_avatar: author?.avatar_url ?? null,
     bookmaker_name: bookmaker?.name ?? "Unknown",
     bookmaker_url: bookmaker?.url ?? null,
   };
@@ -54,6 +57,7 @@ export function toTipView(r: TipRow): TipView {
 export type LeaderboardRow = {
   user_id: string;
   username: string;
+  avatar_url?: string | null;
   settled: number;
   wins: number;
   losses: number;
