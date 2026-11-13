@@ -1,0 +1,105 @@
+import Link from "next/link";
+import type { ReactNode } from "react";
+import type { TipView } from "@/lib/types";
+import { fmtKickoff, fmtOdds, fmtStake, fmtUnits, profitClass, STATUS_CLASS, STATUS_LABEL, tipProfit } from "@/lib/format";
+import { tipMessage, sportEmoji } from "@/lib/shareText";
+import { ShareSheet } from "./ShareSheet";
+import { TeamLogo } from "./TeamLogo";
+import { Card } from "./ui";
+
+export function StatusBadge({ status }: { status: TipView["status"] }) {
+  return (
+    <span className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ring-1 ${STATUS_CLASS[status]}`}>
+      {STATUS_LABEL[status]}
+    </span>
+  );
+}
+
+export function TipCard({
+  tip,
+  linkToShare = true,
+  showReasoning = false,
+  shareUrl,
+  children,
+}: {
+  tip: TipView;
+  linkToShare?: boolean;
+  showReasoning?: boolean;
+  /** When set, shows a one-tap Share button with a ready-made chat message. */
+  shareUrl?: string;
+  children?: ReactNode;
+}) {
+  const profit = tipProfit(tip);
+  const hasLogos = Boolean(tip.home_logo || tip.away_logo);
+  const selection = <span className="text-lg font-semibold leading-snug text-ink">{tip.selection}</span>;
+
+  return (
+    <Card className="overflow-hidden">
+      {/* Match bar */}
+      <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 border-b border-line bg-subtle/70 px-4 py-2.5 text-xs">
+        <span className="flex min-w-0 items-center gap-1.5 font-medium text-ink-2">
+          {hasLogos ? <TeamLogo src={tip.home_logo} name={tip.home_team} size={18} /> : <span aria-hidden>{sportEmoji(tip.sport)}</span>}
+          <span className="truncate">{tip.home_team}</span>
+          <span className="text-faint">vs</span>
+          {hasLogos && <TeamLogo src={tip.away_logo} name={tip.away_team} size={18} />}
+          <span className="truncate">{tip.away_team}</span>
+        </span>
+        <span className="shrink-0 text-muted">
+          {tip.league ? `${tip.league} · ` : ""}
+          {fmtKickoff(tip.kickoff_at)}
+        </span>
+      </div>
+
+      {/* Pick + odds */}
+      <div className="flex items-start justify-between gap-4 px-4 py-4">
+        <div className="min-w-0 space-y-1">
+          {linkToShare ? (
+            <Link href={`/t/${tip.share_slug}`} className="hover:underline">
+              {selection}
+            </Link>
+          ) : (
+            selection
+          )}
+          <p className="text-sm text-muted">
+            by @{tip.author_username}
+            {tip.edited_at && <span className="text-faint"> · edited</span>}
+          </p>
+        </div>
+        <div className="flex shrink-0 flex-col items-end gap-1">
+          <span className="rounded-xl bg-accent-soft px-3 py-1.5 font-mono text-xl font-bold text-accent-ink">
+            {fmtOdds(tip.boosted_odds ?? tip.odds)}
+          </span>
+          {tip.boosted_odds && (
+            <span className="flex items-center gap-1 text-[11px]">
+              <span className="text-muted line-through">{fmtOdds(tip.odds)}</span>
+              <span className="rounded bg-boost-soft px-1 font-bold text-boost">BOOST</span>
+            </span>
+          )}
+        </div>
+      </div>
+
+      {showReasoning && tip.reasoning && (
+        <p className="mx-4 mb-4 whitespace-pre-line rounded-lg bg-subtle p-3 text-sm text-ink-2">{tip.reasoning}</p>
+      )}
+
+      {/* Meta + result */}
+      <div className="flex flex-wrap items-center justify-between gap-2 border-t border-line px-4 py-2.5 text-sm">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-muted">
+          {tip.bookmaker_url ? (
+            <a href={tip.bookmaker_url} target="_blank" rel="noopener noreferrer nofollow" className="font-medium text-ink-2 hover:underline">
+              {tip.bookmaker_name}
+            </a>
+          ) : (
+            <span className="font-medium text-ink-2">{tip.bookmaker_name}</span>
+          )}
+          <span>Stake {fmtStake(tip.stake_units)}</span>
+          <StatusBadge status={tip.status} />
+          {profit !== null && <span className={`font-mono font-semibold ${profitClass(profit)}`}>{fmtUnits(profit)}</span>}
+        </div>
+        {shareUrl && <ShareSheet size="sm" title="Share this tip" message={tipMessage(tip)} url={shareUrl} />}
+      </div>
+
+      {children && <div className="px-4 pb-3">{children}</div>}
+    </Card>
+  );
+}

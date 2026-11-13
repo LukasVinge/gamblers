@@ -1,26 +1,44 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
+/* Gamblers – clean light theme. All colours live here as tokens
+   (bg-page, bg-surface, text-ink, text-muted, bg-accent, text-win, …). */
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+@theme {
+  --color-page: #f4f5f7;
+  --color-surface: #ffffff;
+  --color-subtle: #f1f3f6;
+  --color-line: #e3e7ec;
+  --color-line-strong: #cbd2da;
+
+  --color-ink: #0f172a;
+  --color-ink-2: #334155;
+  --color-muted: #64748b;
+  --color-faint: #94a3b8;
+
+  --color-accent: #2563eb;
+  --color-accent-hover: #1d4ed8;
+  --color-accent-soft: #eaf1fe;
+  --color-accent-ink: #1e40af;
+
+  --color-win: #15803d;
+  --color-win-soft: #e6f5ec;
+  --color-loss: #c62828;
+  --color-loss-soft: #fdecec;
+  --color-warn: #b45309;
+  --color-warn-soft: #fdf2e1;
+  --color-boost: #7c3aed;
+  --color-boost-soft: #f1eafe;
+}
+
+html {
+  color-scheme: light;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--color-page);
+  color: var(--color-ink);
 }
