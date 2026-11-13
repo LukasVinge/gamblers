@@ -255,3 +255,32 @@ export async function deleteTip(fd: FormData) {
   revalidatePath("/");
   redirect(withParam("/", "notice", "Tip deleted."));
 }
+
+/** Admin-only: remove a member (optionally delete their tips and reset the invite link). */
+export async function removeMember(fd: FormData) {
+  const groupId = str(fd, "groupId");
+  const userId = str(fd, "userId");
+  const username = str(fd, "username");
+  const deleteTips = fd.get("deleteTips") === "on";
+  const resetInvite = fd.get("resetInvite") === "on";
+
+  const supabase = await createClient();
+  const { data: deleted, error } = await supabase.rpc("remove_member", {
+    p_group: groupId,
+    p_user: userId,
+    p_delete_tips: deleteTips,
+  });
+  if (error) redirect(withParam("/", "error", error.message));
+
+  if (resetInvite) {
+    const { error: resetError } = await supabase.rpc("regenerate_invite", { p_group: groupId });
+    if (resetError) redirect(withParam("/", "error", `@${username} was removed, but the invite link couldn't be reset: ${resetError.message}`));
+  }
+
+  revalidatePath("/");
+  revalidatePath("/leaderboard");
+  const parts = [`@${username} was removed`];
+  if (deleteTips) parts.push(`${deleted ?? 0} spilforslag deleted`);
+  if (resetInvite) parts.push("new invite link created");
+  redirect(withParam("/", "notice", `${parts.join(" · ")}.`));
+}

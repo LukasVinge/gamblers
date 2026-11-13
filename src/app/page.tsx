@@ -7,6 +7,7 @@ import { getBaseUrl } from "@/lib/url";
 import { inviteMessage, openTipsDigest } from "@/lib/shareText";
 import { TIP_SELECT, toTipView, type TipRow } from "@/lib/types";
 import { GroupHeader, NotInGroup } from "@/components/GroupHeader";
+import { RemoveMemberButton } from "@/components/RemoveMemberButton";
 import { SettleForm } from "@/components/SettleForm";
 import { ShareSheet } from "@/components/ShareSheet";
 import { TipCard } from "@/components/TipCard";
@@ -74,6 +75,14 @@ export default async function Home({
   const tips = ((tipRows ?? []) as unknown as TipRow[]).map(toTipView);
   const members = (memberRows ?? []) as unknown as Member[];
   const isAdmin = members.some((m) => m.user_id === user.id && m.role === "admin");
+
+  // Tip count per member – shown in the admin's "Remove" dialog.
+  const tipCounts = new Map<string, number>();
+  if (isAdmin) {
+    const { data: authors } = await supabase.from("tips").select("author_id").eq("group_id", id);
+    (authors ?? []).forEach((r: { author_id: string }) => tipCounts.set(r.author_id, (tipCounts.get(r.author_id) ?? 0) + 1));
+  }
+
   const baseUrl = await getBaseUrl();
   const tipUrl = (slug: string) => `${baseUrl}/t/${slug}`;
   // Only admins can invite: the invite code is only loaded for them (and the database hides it from others).
@@ -228,14 +237,36 @@ export default async function Home({
         )}
         <Card className="space-y-3 p-5">
           <h2 className="font-semibold">Members ({members.length})</h2>
-          <ul className="flex flex-wrap gap-2 text-sm">
-            {members.map((m) => (
-              <li key={m.user_id} className="rounded-full bg-subtle px-3 py-1">
-                @{m.profile?.username}
-                {m.role === "admin" && <span className="ml-1 text-xs text-accent">admin</span>}
-              </li>
-            ))}
-          </ul>
+          {isAdmin ? (
+            <ul className="divide-y divide-line text-sm">
+              {members.map((m) => (
+                <li key={m.user_id} className="flex items-center justify-between gap-3 py-2">
+                  <span>
+                    @{m.profile?.username}
+                    {m.role === "admin" && <span className="ml-1.5 text-xs text-accent">admin</span>}
+                    {m.user_id === user.id && <span className="ml-1.5 text-xs text-faint">(you)</span>}
+                  </span>
+                  {m.role !== "admin" && m.user_id !== user.id && (
+                    <RemoveMemberButton
+                      groupId={id}
+                      userId={m.user_id}
+                      username={m.profile?.username ?? "member"}
+                      tipCount={tipCounts.get(m.user_id) ?? 0}
+                    />
+                  )}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <ul className="flex flex-wrap gap-2 text-sm">
+              {members.map((m) => (
+                <li key={m.user_id} className="rounded-full bg-subtle px-3 py-1">
+                  @{m.profile?.username}
+                  {m.role === "admin" && <span className="ml-1 text-xs text-accent">admin</span>}
+                </li>
+              ))}
+            </ul>
+          )}
         </Card>
       </div>
     </div>

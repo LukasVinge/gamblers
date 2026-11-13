@@ -45,7 +45,7 @@ export function toTipView(r: TipRow): TipView {
   const { author, bookmaker, ...rest } = r;
   return {
     ...rest,
-    author_username: author?.username ?? "unknown",
+    author_username: author?.username ?? "former member",
     bookmaker_name: bookmaker?.name ?? "Unknown",
     bookmaker_url: bookmaker?.url ?? null,
   };
