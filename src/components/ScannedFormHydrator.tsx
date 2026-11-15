@@ -37,7 +37,13 @@ export function ScannedFormHydrator({ active }: { active: boolean }) {
       setVal("home_team", data.home_team);
       setVal("away_team", data.away_team);
       setVal("league", data.league);
-      setVal("bookmaker_id", data.bookmaker_id);
+      if (data.bookmaker_id != null) {
+        const radio = document.querySelector<HTMLInputElement>(`input[name="bookmaker_id"][value="${data.bookmaker_id}"]`);
+        if (radio) {
+          radio.checked = true;
+          radio.dispatchEvent(new Event("change", { bubbles: true }));
+        }
+      }
       setVal("odds", data.odds);
       setVal("boosted_odds", data.boosted_odds);
 

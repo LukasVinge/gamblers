@@ -25,7 +25,7 @@ export default async function EditTipPage({
 
   const [{ data: row }, { data: bookmakers }] = await Promise.all([
     supabase.from("tips").select(TIP_SELECT).eq("share_slug", slug).maybeSingle(),
-    supabase.from("bookmakers").select("id, name").order("id"),
+    supabase.from("bookmakers").select("id, name, url").order("id"),
   ]);
   if (!row) notFound();
   const tip = toTipView(row as unknown as TipRow);

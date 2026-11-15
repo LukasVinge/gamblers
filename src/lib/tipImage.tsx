@@ -1,6 +1,7 @@
 import { ImageResponse } from "next/og";
 import { fmtKickoff, fmtOdds, fmtStake, STATUS_LABEL } from "@/lib/format";
 import type { SharedTip } from "@/lib/sharedTip";
+import { bookmakerLogo } from "@/lib/bookmakerLogo";
 
 // The preview image for a shared tip (Messenger, WhatsApp, Discord, …). 1200×630.
 
@@ -126,7 +127,13 @@ export function renderTipImage(tip: SharedTip) {
             </div>
             <div style={{ display: "flex", flexDirection: "column", paddingBottom: 6 }}>
               <span style={{ fontSize: 22, color: C.muted }}>Bookmaker</span>
-              <span style={{ fontSize: 34, fontWeight: 700 }}>{tip.bookmaker_name}</span>
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                {bookmakerLogo(tip.bookmaker_url, 128) ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={bookmakerLogo(tip.bookmaker_url, 128)!} width={36} height={36} style={{ borderRadius: 8 }} alt="" />
+                ) : null}
+                <span style={{ fontSize: 34, fontWeight: 700 }}>{tip.bookmaker_name}</span>
+              </div>
             </div>
             <div style={{ display: "flex", flexDirection: "column", paddingBottom: 6 }}>
               <span style={{ fontSize: 22, color: C.muted }}>Stake</span>

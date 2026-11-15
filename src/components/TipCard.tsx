@@ -5,6 +5,7 @@ import { fmtKickoff, fmtOdds, fmtStake, fmtUnits, profitClass, STATUS_CLASS, STA
 import { tipMessage, sportEmoji } from "@/lib/shareText";
 import { ShareSheet } from "./ShareSheet";
 import { Avatar } from "./Avatar";
+import { BookmakerLogo } from "./BookmakerLogo";
 import { TeamLogo } from "./TeamLogo";
 import { Card } from "./ui";
 
@@ -92,13 +93,16 @@ export function TipCard({
       {/* Meta + result */}
       <div className="flex flex-wrap items-center justify-between gap-2 border-t border-line px-4 py-2.5 text-sm">
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-muted">
-          {tip.bookmaker_url ? (
-            <a href={tip.bookmaker_url} target="_blank" rel="noopener noreferrer nofollow" className="font-medium text-ink-2 hover:underline">
-              {tip.bookmaker_name}
-            </a>
-          ) : (
-            <span className="font-medium text-ink-2">{tip.bookmaker_name}</span>
-          )}
+          <span className="inline-flex items-center gap-1.5">
+            <BookmakerLogo name={tip.bookmaker_name} url={tip.bookmaker_url} size={18} />
+            {tip.bookmaker_url ? (
+              <a href={tip.bookmaker_url} target="_blank" rel="noopener noreferrer nofollow" className="font-medium text-ink-2 hover:underline">
+                {tip.bookmaker_name}
+              </a>
+            ) : (
+              <span className="font-medium text-ink-2">{tip.bookmaker_name}</span>
+            )}
+          </span>
           <span>Stake {fmtStake(tip.stake_units)}</span>
           <StatusBadge status={tip.status} />
           {profit !== null && <span className={`font-mono font-semibold ${profitClass(profit)}`}>{fmtUnits(profit)}</span>}

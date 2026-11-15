@@ -70,7 +70,7 @@ export default async function NewTipPage({
 
   const [group, { data: bookmakers }] = await Promise.all([
     getMainGroup(supabase),
-    supabase.from("bookmakers").select("id, name").order("id"),
+    supabase.from("bookmakers").select("id, name, url").order("id"),
   ]);
   if (!group) return <NotInGroup />;
 
