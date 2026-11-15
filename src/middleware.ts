@@ -43,6 +43,12 @@ export async function middleware(request: NextRequest) {
   const path = request.nextUrl.pathname;
   const isPublic = path === "/" || PUBLIC_PREFIXES.some((p) => path.startsWith(p));
 
+  // API calls from the page get a JSON answer instead of a redirect to the login page,
+  // so the browser can show "log in first" instead of a confusing network error.
+  if (!user && path.startsWith("/api/")) {
+    return NextResponse.json({ error: "Du skal være logget ind." }, { status: 401 });
+  }
+
   if (!user && !isPublic) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";

@@ -77,10 +77,10 @@ export function ManualMatchFields() {
           <input name="away_team" required maxLength={80} value={away} onChange={(e) => setAway(e.target.value)} placeholder="e.g. Brøndby" className={inputCls} />
         </Field>
         <Field label="Date">
-          <input type="date" required value={date} onChange={(e) => setDate(e.target.value)} className={inputCls} />
+          <input type="date" name="kickoff_date" required value={date} onChange={(e) => setDate(e.target.value)} className={inputCls} />
         </Field>
         <Field label="Kickoff time" hint={inPast ? undefined : "Your local time"}>
-          <input type="time" required value={time} onChange={(e) => setTime(e.target.value)} className={inputCls} />
+          <input type="time" name="kickoff_time" required value={time} onChange={(e) => setTime(e.target.value)} className={inputCls} />
           {inPast && <span className="block text-xs text-loss">That time has already passed – tips must be posted before kickoff.</span>}
         </Field>
       </div>

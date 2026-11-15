@@ -3,6 +3,31 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
+/** Longest side in pixels after shrinking – plenty for the AI to read a betting slip. */
+const MAX_SIDE = 1600;
+
+/**
+ * Scales the image down (if needed) and re-encodes it as JPEG, so uploads are small and fast.
+ * A phone photo of 5–10 MB typically ends up around 200–400 KB. Throws if the browser can't decode it.
+ */
+async function shrinkImage(file: File): Promise<Blob> {
+  const bitmap = await createImageBitmap(file);
+  const scale = Math.min(1, MAX_SIDE / Math.max(bitmap.width, bitmap.height));
+  const width = Math.round(bitmap.width * scale);
+  const height = Math.round(bitmap.height * scale);
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext("2d")!;
+  ctx.fillStyle = "#ffffff"; // transparent PNG screenshots → white background, not black
+  ctx.fillRect(0, 0, width, height);
+  ctx.drawImage(bitmap, 0, 0, width, height);
+  bitmap.close();
+  return new Promise((resolve, reject) =>
+    canvas.toBlob((b) => (b ? resolve(b) : reject(new Error("encode failed"))), "image/jpeg", 0.85),
+  );
+}
+
 export function SlipScanner() {
   const router = useRouter();
   const inputRef = useRef<HTMLInputElement>(null);
@@ -19,15 +44,45 @@ export function SlipScanner() {
       setLoading(true);
       setError(null);
 
+      // 1. Make the image small enough to upload quickly (and below Vercel's ~4.5 MB limit).
+      let upload: Blob = file;
+      try {
+        upload = await shrinkImage(file);
+      } catch {
+        // the browser can't read this format (e.g. HEIC on a PC) – send the original if it's small enough
+        if (file.size > 4 * 1024 * 1024) {
+          setError("Billedet kunne ikke formindskes og er for stort. Tag et screenshot af kuponen i stedet.");
+          setLoading(false);
+          return;
+        }
+      }
+
+      // 2. Send it to the AI
+      let res: Response;
       try {
         const fd = new FormData();
-        fd.append("image", file);
+        fd.append("image", upload, upload === file ? file.name : "kupon.jpg");
+        res = await fetch("/api/parse-bet", { method: "POST", body: fd });
+      } catch {
+        setError("Netværksfejl – tjek din forbindelse og prøv igen.");
+        setLoading(false);
+        return;
+      }
 
-        const res = await fetch("/api/parse-bet", { method: "POST", body: fd });
-        const data = await res.json();
+      // 3. Read the answer – show the server's own message when something went wrong
+      try {
+        const isJson = (res.headers.get("content-type") ?? "").includes("application/json");
+        const data = isJson ? await res.json() : null;
 
-        if (!res.ok) {
-          setError(data.error || "Noget gik galt under aflæsning.");
+        if (!res.ok || !data) {
+          setError(
+            data?.error ??
+              (res.status === 413
+                ? "Billedet er for stort. Prøv et screenshot i stedet."
+                : res.status === 404
+                  ? "Scanneren blev ikke fundet på serveren (404)."
+                  : `Serverfejl (${res.status}). Prøv igen om lidt.`),
+          );
           setLoading(false);
           return;
         }
@@ -41,7 +96,7 @@ export function SlipScanner() {
           router.push("/new?manual=1&scanned=1");
         }
       } catch {
-        setError("Netværksfejl – prøv igen.");
+        setError("Svaret fra AI'en kunne ikke læses. Prøv igen.");
         setLoading(false);
       }
     },

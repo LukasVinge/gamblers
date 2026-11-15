@@ -44,10 +44,10 @@ export function ScannedFormHydrator({ active }: { active: boolean }) {
       if (data.kickoff_at) {
         const d = new Date(data.kickoff_at);
         if (!Number.isNaN(d.getTime())) {
-          const local = new Date(d.getTime() - d.getTimezoneOffset() * 60000)
-            .toISOString()
-            .slice(0, 16);
-          setVal("kickoff_at", local);
+          // → the manual form's date + time fields, in the user's own timezone
+          const local = new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString(); // YYYY-MM-DDTHH:mm…
+          setVal("kickoff_date", local.slice(0, 10));
+          setVal("kickoff_time", local.slice(11, 16));
         }
       }
     } catch {
