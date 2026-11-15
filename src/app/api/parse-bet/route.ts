@@ -1,12 +1,15 @@
 import { NextResponse } from "next/server";
-import { ApiError, GoogleGenAI, Type, type Schema } from "@google/genai";
+import { ApiError, GoogleGenAI, MediaResolution, ThinkingLevel, Type, type GenerateContentConfig, type Schema } from "@google/genai";
 import { getAuth } from "@/lib/supabase/server";
 import { getUpcomingMatches, hasApiKey, teamName } from "@/lib/footballData";
 import { matchesQuery, norm } from "@/lib/search";
 
 // Bet-slip scanner: a screenshot in, the spilforslag fields out (Gemini reads the image).
 
-export const maxDuration = 30; // seconds – reading an image can take a while
+export const maxDuration = 60; // seconds – Vercel stops the function after this (that was the 504)
+
+/** Our own deadline for all AI attempts, so we answer with a clear message before Vercel cuts us off. */
+const AI_DEADLINE_MS = 50_000;
 
 /** Vercel rejects request bodies over ~4.5 MB; the browser shrinks images well below this first. */
 const MAX_BYTES = 4 * 1024 * 1024;
@@ -51,6 +54,11 @@ const PROMPT =
   "(e.g. 'Begge hold scorer' -> 'Both teams to score', 'Over 2,5 mål' -> 'Over 2.5 goals', 'Vinder kampen - Arsenal' -> 'Arsenal to win', " +
   "'Scorer når som helst - Haaland' -> 'Haaland to score'). Use decimal odds with a dot.";
 
+function isTimeout(e: unknown) {
+  const msg = e instanceof Error ? `${e.name} ${e.message}` : String(e);
+  return /abort|timeout|timed out|deadline/i.test(msg);
+}
+
 function fail(error: string, status: number) {
   return NextResponse.json({ error }, { status });
 }
@@ -59,6 +67,7 @@ function fail(error: string, status: number) {
 function describeGeminiError(e: unknown): { error: string; status: number } {
   const status = e instanceof ApiError ? e.status : undefined;
   const msg = e instanceof Error ? e.message : String(e);
+  if (isTimeout(e)) return { error: "AI'en var for længe om at svare. Prøv igen – eller brug et skarpere screenshot.", status: 504 };
   if (status === 400 && /api key/i.test(msg)) return { error: "Gemini-nøglen (GEMINI_API_KEY) er ugyldig. Tjek den i Vercel.", status: 500 };
   if (status === 401 || status === 403) return { error: "Gemini afviste nøglen (GEMINI_API_KEY). Tjek den i Vercel.", status: 500 };
   if (status === 429) return { error: "AI-grænsen er nået lige nu. Prøv igen om lidt.", status: 429 };
@@ -87,6 +96,17 @@ export async function POST(req: Request) {
 
   const base64 = Buffer.from(await file.arrayBuffer()).toString("base64");
   const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+  const startedAt = Date.now();
+
+  // Reading a slip needs no "thinking" (that's what made it slow), and medium image detail is plenty for text.
+  const fastConfig: GenerateContentConfig = {
+    responseMimeType: "application/json",
+    responseSchema: BET_SCHEMA,
+    temperature: 0.1,
+    thinkingConfig: { thinkingLevel: ThinkingLevel.MINIMAL },
+    mediaResolution: MediaResolution.MEDIA_RESOLUTION_MEDIUM,
+  };
+  const plainConfig: GenerateContentConfig = { responseMimeType: "application/json", responseSchema: BET_SCHEMA, temperature: 0.1 };
 
   // Ask the AI. On 404 (model retired / not available to this key) move on to Google's suggested
   // replacement, or the next model in the list.
@@ -98,12 +118,25 @@ export async function POST(req: Request) {
     if (tried.includes(model)) continue;
     tried.push(model);
     try {
-      const response = await ai.models.generateContent({
-        model,
-        contents: [{ inlineData: { data: base64, mimeType } }, PROMPT],
-        config: { responseMimeType: "application/json", responseSchema: BET_SCHEMA, temperature: 0.1 },
-      });
+      const ask = (config: GenerateContentConfig) => {
+        const timeLeft = AI_DEADLINE_MS - (Date.now() - startedAt);
+        if (timeLeft < 3_000) throw new Error("deadline exceeded");
+        return ai.models.generateContent({
+          model,
+          contents: [{ inlineData: { data: base64, mimeType } }, PROMPT],
+          config: { ...config, httpOptions: { timeout: timeLeft } },
+        });
+      };
+      let response;
+      try {
+        response = await ask(fastConfig);
+      } catch (e) {
+        // an older model may not accept the speed settings – ask again without them
+        if (e instanceof ApiError && e.status === 400 && /thinking|media.?resolution/i.test(e.message)) response = await ask(plainConfig);
+        else throw e;
+      }
       text = response.text;
+      console.log(`parse-bet: ${model} answered in ${Date.now() - startedAt} ms`);
       break;
     } catch (e) {
       const suggestion = e instanceof Error ? suggestedModel(e.message) : null;
