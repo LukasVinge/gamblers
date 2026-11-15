@@ -1,78 +1,19 @@
 import { NextResponse } from "next/server";
-import { ApiError, GoogleGenAI, MediaResolution, ThinkingLevel, Type, type GenerateContentConfig, type Schema } from "@google/genai";
 import { getAuth } from "@/lib/supabase/server";
 import { getUpcomingMatches, hasApiKey, teamName } from "@/lib/footballData";
 import { matchesQuery, norm } from "@/lib/search";
+import { readSlip } from "@/lib/slipReader";
 
 // Bet-slip scanner: a screenshot in, the spilforslag fields out (Gemini reads the image).
 
-export const maxDuration = 60; // seconds – Vercel stops the function after this (that was the 504)
-
-/** Our own deadline for all AI attempts, so we answer with a clear message before Vercel cuts us off. */
-const AI_DEADLINE_MS = 50_000;
+export const maxDuration = 60; // seconds – Vercel stops the function after this
 
 /** Vercel rejects request bodies over ~4.5 MB; the browser shrinks images well below this first. */
 const MAX_BYTES = 4 * 1024 * 1024;
 const ALLOWED_TYPES = ["image/jpeg", "image/png", "image/webp", "image/heic", "image/heif"];
 
-/**
- * Models to try, in order. GEMINI_MODEL (Vercel env var) can override.
- * gemini-3.8-flash is what Google currently recommends (Nov 2026); if a model gets retired, Google's
- * 404 answer names the replacement ("…use models/<name>…") and we try that one automatically.
- */
-const MODELS = [process.env.GEMINI_MODEL, "gemini-3.8-flash", "gemini-flash-latest"].filter(
-  (m, i, all): m is string => Boolean(m) && all.indexOf(m) === i,
-);
-const MAX_MODEL_TRIES = 4;
-
-/** "This model models/x is no longer available… use models/gemini-3.8-flash …" → "gemini-3.8-flash" */
-function suggestedModel(message: string): string | null {
-  return message.match(/use\s+models\/([\w.-]+)/i)?.[1] ?? null;
-}
-
-const BET_SCHEMA: Schema = {
-  type: Type.OBJECT,
-  properties: {
-    home_team: { type: Type.STRING, description: "Home team or player 1 name, e.g. 'Arsenal'" },
-    away_team: { type: Type.STRING, description: "Away team or player 2 name, e.g. 'Chelsea'" },
-    selection: {
-      type: Type.STRING,
-      description:
-        "Formatted pick. For 1X2 use '<Home> to win', 'Draw', or '<Away> to win'. For player bets use '<Player> to score', '<Player> 2+ shots on target', etc. Otherwise concise market like 'Over 2.5 goals' or 'Both teams to score'.",
-    },
-    odds: { type: Type.NUMBER, description: "Standard decimal odds (e.g. 2.15). If only boosted odds are shown, put that here." },
-    boosted_odds: { type: Type.NUMBER, nullable: true, description: "Boosted decimal odds if an odds boost is visible, otherwise null." },
-    bookmaker: { type: Type.STRING, nullable: true, description: "Bookmaker name if visible (e.g. bet365, Unibet, Danske Spil, Betano)." },
-    league: { type: Type.STRING, nullable: true, description: "League or tournament name if visible, e.g. 'Premier League'." },
-    kickoff_at: { type: Type.STRING, nullable: true, description: "ISO 8601 datetime if the kickoff date/time is visible, otherwise null." },
-  },
-  required: ["home_team", "away_team", "selection", "odds"],
-};
-
-const PROMPT =
-  "Extract the betting slip details from this screenshot. Translate Danish bet selections into clean English betting terminology " +
-  "(e.g. 'Begge hold scorer' -> 'Both teams to score', 'Over 2,5 mål' -> 'Over 2.5 goals', 'Vinder kampen - Arsenal' -> 'Arsenal to win', " +
-  "'Scorer når som helst - Haaland' -> 'Haaland to score'). Use decimal odds with a dot.";
-
-function isTimeout(e: unknown) {
-  const msg = e instanceof Error ? `${e.name} ${e.message}` : String(e);
-  return /abort|timeout|timed out|deadline/i.test(msg);
-}
-
 function fail(error: string, status: number) {
   return NextResponse.json({ error }, { status });
-}
-
-/** Turns a Gemini error into a message the user (and you) can act on. */
-function describeGeminiError(e: unknown): { error: string; status: number } {
-  const status = e instanceof ApiError ? e.status : undefined;
-  const msg = e instanceof Error ? e.message : String(e);
-  if (isTimeout(e)) return { error: "AI'en var for længe om at svare. Prøv igen – eller brug et skarpere screenshot.", status: 504 };
-  if (status === 400 && /api key/i.test(msg)) return { error: "Gemini-nøglen (GEMINI_API_KEY) er ugyldig. Tjek den i Vercel.", status: 500 };
-  if (status === 401 || status === 403) return { error: "Gemini afviste nøglen (GEMINI_API_KEY). Tjek den i Vercel.", status: 500 };
-  if (status === 429) return { error: "AI-grænsen er nået lige nu. Prøv igen om lidt.", status: 429 };
-  if (status === 400) return { error: "AI'en kunne ikke læse billedet. Prøv et tydeligere screenshot.", status: 400 };
-  return { error: `AI-fejl${status ? ` (${status})` : ""}: ${msg.slice(0, 160)}`, status: 502 };
 }
 
 export async function POST(req: Request) {
@@ -95,64 +36,9 @@ export async function POST(req: Request) {
   if (!ALLOWED_TYPES.includes(mimeType)) return fail("Upload et billede (JPG, PNG eller WebP).", 415);
 
   const base64 = Buffer.from(await file.arrayBuffer()).toString("base64");
-  const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-  const startedAt = Date.now();
-
-  // Reading a slip needs no "thinking" (that's what made it slow), and medium image detail is plenty for text.
-  const fastConfig: GenerateContentConfig = {
-    responseMimeType: "application/json",
-    responseSchema: BET_SCHEMA,
-    temperature: 0.1,
-    thinkingConfig: { thinkingLevel: ThinkingLevel.MINIMAL },
-    mediaResolution: MediaResolution.MEDIA_RESOLUTION_MEDIUM,
-  };
-  const plainConfig: GenerateContentConfig = { responseMimeType: "application/json", responseSchema: BET_SCHEMA, temperature: 0.1 };
-
-  // Ask the AI. On 404 (model retired / not available to this key) move on to Google's suggested
-  // replacement, or the next model in the list.
-  let text: string | undefined;
-  const queue = [...MODELS];
-  const tried: string[] = [];
-  while (queue.length > 0 && tried.length < MAX_MODEL_TRIES) {
-    const model = queue.shift()!;
-    if (tried.includes(model)) continue;
-    tried.push(model);
-    try {
-      const ask = (config: GenerateContentConfig) => {
-        const timeLeft = AI_DEADLINE_MS - (Date.now() - startedAt);
-        if (timeLeft < 3_000) throw new Error("deadline exceeded");
-        return ai.models.generateContent({
-          model,
-          contents: [{ inlineData: { data: base64, mimeType } }, PROMPT],
-          config: { ...config, httpOptions: { timeout: timeLeft } },
-        });
-      };
-      let response;
-      try {
-        response = await ask(fastConfig);
-      } catch (e) {
-        // an older model may not accept the speed settings – ask again without them
-        if (e instanceof ApiError && e.status === 400 && /thinking|media.?resolution/i.test(e.message)) response = await ask(plainConfig);
-        else throw e;
-      }
-      text = response.text;
-      console.log(`parse-bet: ${model} answered in ${Date.now() - startedAt} ms`);
-      break;
-    } catch (e) {
-      const suggestion = e instanceof Error ? suggestedModel(e.message) : null;
-      if (e instanceof ApiError && e.status === 404 && (suggestion || queue.length > 0) && tried.length < MAX_MODEL_TRIES) {
-        console.warn(`parse-bet: model ${model} unavailable${suggestion ? `, Google suggests ${suggestion}` : ""}`);
-        if (suggestion && !tried.includes(suggestion)) queue.unshift(suggestion);
-        continue;
-      }
-      console.error("parse-bet gemini error:", model, e);
-      const { error, status } = describeGeminiError(e);
-      return fail(error, status);
-    }
-  }
-  if (text === undefined) {
-    return fail(`Ingen AI-model var tilgængelig (prøvede: ${tried.join(", ")}). Sæt GEMINI_MODEL i Vercel til en model fra aistudio.google.com.`, 502);
-  }
+  const result = await readSlip(base64, mimeType);
+  if ("error" in result) return fail(result.error, result.status);
+  const text = result.text;
 
   let parsed: Record<string, unknown>;
   try {
