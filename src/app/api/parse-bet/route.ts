@@ -47,6 +47,13 @@ export async function POST(req: Request) {
     return fail("AI'en svarede ikke i et brugbart format. Prøv igen.", 502);
   }
 
+  // Safety net: a 1X2 pick sometimes comes back as just the team name ("Arsenal") → "Arsenal to win".
+  if (typeof parsed.selection === "string") {
+    const pick = parsed.selection.trim();
+    const same = (team: unknown) => typeof team === "string" && norm(team) === norm(pick);
+    if (same(parsed.home_team) || same(parsed.away_team)) parsed.selection = `${pick} to win`;
+  }
+
   // 1. Match the bookmaker against our list
   let matchedBookmakerId: number | null = null;
   if (typeof parsed.bookmaker === "string" && parsed.bookmaker.trim()) {

@@ -7,16 +7,18 @@ export const AI_DEADLINE_MS = 50_000;
 
 /**
  * Models to try, in order. GEMINI_MODEL (Vercel env var) can override.
- * Measured 15 Nov 2026 with a real slip: gemini-3.6-flash ≈1.7 s and gemini-3.5-flash ≈1.5 s, both exact.
- * gemini-3.8-flash (Google's suggested model) rejects "minimal thinking" and ran past 60 s → not used.
- * If a model gets retired, Google's 404 names a replacement ("…use models/<name>…"), which we also try.
+ * Measured 15 Nov 2026 (real key, bet-builder slip with boost):
+ *  · gemini-3.5-flash-lite / 3.1-flash-lite: ≈1.5 s, every leg, odds and boost correct
+ *  · gemini-3.6-flash / 3.5-flash: 6–10 s, and the free quota runs out after ~2 scans a minute (429)
+ * Each model has its own quota, so on 429 we simply move on to the next one.
+ * gemini-3.8-flash rejects "minimal thinking" and ran past 60 s → not used.
  */
-const MODELS = [process.env.GEMINI_MODEL, "gemini-3.6-flash", "gemini-3.5-flash"].filter(
+const MODELS = [process.env.GEMINI_MODEL, "gemini-3.5-flash-lite", "gemini-3.1-flash-lite", "gemini-3.6-flash", "gemini-3.5-flash"].filter(
   (m, i, all): m is string => Boolean(m) && all.indexOf(m) === i,
 );
-const MAX_MODEL_TRIES = 4;
-/** One model gets at most this long; the good ones answer in ~2 s, so a slow one is skipped quickly. */
-const PER_MODEL_TIMEOUT_MS = 15_000;
+const MAX_MODEL_TRIES = 5;
+/** One model gets at most this long; the fast ones answer in ~1.5 s, so a slow one is skipped quickly. */
+const PER_MODEL_TIMEOUT_MS = 12_000;
 
 /** "This model models/x is no longer available… use models/gemini-3.8-flash …" → "gemini-3.8-flash" */
 function suggestedModel(message: string): string | null {
@@ -119,6 +121,7 @@ export async function readSlip(base64: string, mimeType: string, models: string[
       const skippable =
         (e instanceof ApiError && e.status === 404) ||
         (e instanceof ApiError && e.status === 400 && /thinking|media.?resolution/i.test(msg)) ||
+        (e instanceof ApiError && (e.status === 429 || e.status === 503)) || // quota used up / model overloaded → next model
         (isTimeout(e) && Date.now() - startedAt < AI_DEADLINE_MS - 3_000);
       if (skippable && (suggestion || queue.length > 0) && tried.length < MAX_MODEL_TRIES) {
         console.warn(`parse-bet: skipping ${model} (${e instanceof ApiError ? e.status : "timeout"})${suggestion ? `, Google suggests ${suggestion}` : ""}`);

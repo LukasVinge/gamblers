@@ -41,14 +41,15 @@ export function BetFields({ bookmakers, defaults = {} }: { bookmakers: Bookmaker
         </div>
       </fieldset>
 
-      <div className="grid grid-cols-3 gap-4">
-        <Field label="Odds" hint="Decimal, e.g. 2.10">
+      {/* Short labels so all three stay on one line on a phone and the boxes line up */}
+      <div className="grid grid-cols-3 items-start gap-3 sm:gap-4">
+        <Field label="Odds" hint="e.g. 2.10">
           <input name="odds" required inputMode="decimal" placeholder="2.10" defaultValue={fmt(defaults.odds)} className={`${inputCls} font-mono`} />
         </Field>
-        <Field label="Boosted odds" hint="Optional">
+        <Field label="Boost" hint="Optional">
           <input name="boosted_odds" inputMode="decimal" placeholder="—" defaultValue={fmt(defaults.boosted_odds)} className={`${inputCls} font-mono`} />
         </Field>
-        <Field label="Stake (units)" hint="0.5 – 10">
+        <Field label="Units" hint="0.5 – 10">
           <input
             name="stake_units"
             required
