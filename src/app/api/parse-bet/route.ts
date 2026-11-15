@@ -12,10 +12,20 @@ export const maxDuration = 30; // seconds – reading an image can take a while
 const MAX_BYTES = 4 * 1024 * 1024;
 const ALLOWED_TYPES = ["image/jpeg", "image/png", "image/webp", "image/heic", "image/heif"];
 
-/** First model that works wins. GEMINI_MODEL can override; the "-latest" alias follows Google's current Flash model. */
-const MODELS = [process.env.GEMINI_MODEL, "gemini-flash-latest", "gemini-2.5-flash"].filter(
+/**
+ * Models to try, in order. GEMINI_MODEL (Vercel env var) can override.
+ * gemini-3.8-flash is what Google currently recommends (Nov 2026); if a model gets retired, Google's
+ * 404 answer names the replacement ("…use models/<name>…") and we try that one automatically.
+ */
+const MODELS = [process.env.GEMINI_MODEL, "gemini-3.8-flash", "gemini-flash-latest"].filter(
   (m, i, all): m is string => Boolean(m) && all.indexOf(m) === i,
 );
+const MAX_MODEL_TRIES = 4;
+
+/** "This model models/x is no longer available… use models/gemini-3.8-flash …" → "gemini-3.8-flash" */
+function suggestedModel(message: string): string | null {
+  return message.match(/use\s+models\/([\w.-]+)/i)?.[1] ?? null;
+}
 
 const BET_SCHEMA: Schema = {
   type: Type.OBJECT,
@@ -78,9 +88,15 @@ export async function POST(req: Request) {
   const base64 = Buffer.from(await file.arrayBuffer()).toString("base64");
   const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
-  // Ask the AI – try the next model if one has been retired (404).
+  // Ask the AI. On 404 (model retired / not available to this key) move on to Google's suggested
+  // replacement, or the next model in the list.
   let text: string | undefined;
-  for (const model of MODELS) {
+  const queue = [...MODELS];
+  const tried: string[] = [];
+  while (queue.length > 0 && tried.length < MAX_MODEL_TRIES) {
+    const model = queue.shift()!;
+    if (tried.includes(model)) continue;
+    tried.push(model);
     try {
       const response = await ai.models.generateContent({
         model,
@@ -90,11 +106,19 @@ export async function POST(req: Request) {
       text = response.text;
       break;
     } catch (e) {
-      if (e instanceof ApiError && e.status === 404 && model !== MODELS[MODELS.length - 1]) continue;
+      const suggestion = e instanceof Error ? suggestedModel(e.message) : null;
+      if (e instanceof ApiError && e.status === 404 && (suggestion || queue.length > 0) && tried.length < MAX_MODEL_TRIES) {
+        console.warn(`parse-bet: model ${model} unavailable${suggestion ? `, Google suggests ${suggestion}` : ""}`);
+        if (suggestion && !tried.includes(suggestion)) queue.unshift(suggestion);
+        continue;
+      }
       console.error("parse-bet gemini error:", model, e);
       const { error, status } = describeGeminiError(e);
       return fail(error, status);
     }
+  }
+  if (text === undefined) {
+    return fail(`Ingen AI-model var tilgængelig (prøvede: ${tried.join(", ")}). Sæt GEMINI_MODEL i Vercel til en model fra aistudio.google.com.`, 502);
   }
 
   let parsed: Record<string, unknown>;
