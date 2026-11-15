@@ -6,38 +6,39 @@ type InstallEvent = Event & { prompt: () => Promise<void>; userChoice: Promise<{
 
 const DISMISS_KEY = "gamblers-install-hint-dismissed";
 
+type Platform = "ios" | "android" | "desktop";
+
 /**
- * "Get the app" banner for phone browsers. Hidden when the site already runs as an installed app,
- * on computers, and after the user dismisses it.
- *  · Android/Chrome: an Install button (uses the browser's own install prompt)
- *  · iPhone/iPad: short instructions (Share → Add to Home Screen) – Apple offers no button for it
+ * Install Gamblers as an app.
+ *  · variant "card"    – dismissible banner (feed + front page), phones only, hidden once installed/dismissed
+ *  · variant "profile" – always-visible section on the Profile page: status + steps for this device
  */
-export function InstallHint() {
-  const [mode, setMode] = useState<"hidden" | "ios" | "android">("hidden");
+export function InstallHint({ variant = "card" }: { variant?: "card" | "profile" }) {
+  const [ready, setReady] = useState(false);
+  const [platform, setPlatform] = useState<Platform>("desktop");
+  const [installed, setInstalled] = useState(false);
+  const [dismissed, setDismissed] = useState(false);
   const [installEvent, setInstallEvent] = useState<InstallEvent | null>(null);
 
   useEffect(() => {
-    const standalone =
-      window.matchMedia("(display-mode: standalone)").matches || (navigator as Navigator & { standalone?: boolean }).standalone === true;
-    let dismissed = false;
+    const ua = navigator.userAgent;
+    const ios = /iPhone|iPad|iPod/i.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
+    setPlatform(ios ? "ios" : /Android/i.test(ua) ? "android" : "desktop");
+    setInstalled(
+      window.matchMedia("(display-mode: standalone)").matches || (navigator as Navigator & { standalone?: boolean }).standalone === true,
+    );
     try {
-      dismissed = localStorage.getItem(DISMISS_KEY) === "1";
+      setDismissed(localStorage.getItem(DISMISS_KEY) === "1");
     } catch {
       // private mode – just show it
     }
-    if (standalone || dismissed) return;
-
-    const ua = navigator.userAgent;
-    const ios = /iPhone|iPad|iPod/i.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
-    if (ios) setMode("ios");
-    else if (/Android/i.test(ua)) setMode("android");
+    setReady(true);
 
     const onPrompt = (e: Event) => {
       e.preventDefault();
       setInstallEvent(e as InstallEvent);
-      setMode("android");
     };
-    const onInstalled = () => setMode("hidden");
+    const onInstalled = () => setInstalled(true);
     window.addEventListener("beforeinstallprompt", onPrompt);
     window.addEventListener("appinstalled", onInstalled);
     return () => {
@@ -46,7 +47,15 @@ export function InstallHint() {
     };
   }, []);
 
-  if (mode === "hidden") return null;
+  if (!ready) return null;
+
+  async function install() {
+    if (!installEvent) return;
+    await installEvent.prompt();
+    const { outcome } = await installEvent.userChoice;
+    if (outcome === "accepted") setInstalled(true);
+    setInstallEvent(null);
+  }
 
   function dismiss() {
     try {
@@ -54,16 +63,57 @@ export function InstallHint() {
     } catch {
       // ignore
     }
-    setMode("hidden");
+    setDismissed(true);
   }
 
-  async function install() {
-    if (!installEvent) return;
-    await installEvent.prompt();
-    const { outcome } = await installEvent.userChoice;
-    if (outcome === "accepted") setMode("hidden");
-    setInstallEvent(null);
+  const steps =
+    platform === "ios" ? (
+      <>
+        Open the site in <b>Safari</b>, tap <b>Share</b> <span aria-hidden>(the square with an arrow)</span> → <b>Add to Home Screen</b>.
+      </>
+    ) : platform === "android" ? (
+      <>
+        Open the browser menu <b>⋮</b> → <b>Add to Home screen</b> (or <b>Install app</b>).
+      </>
+    ) : (
+      <>
+        On your phone, open <b>ragegamblers.vercel.app</b> and add it to the home screen. On a computer, Chrome and Edge show an
+        install icon at the right of the address bar.
+      </>
+    );
+
+  const installButton = installEvent && (
+    <button type="button" onClick={install} className="rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-white hover:bg-accent-hover">
+      Install app
+    </button>
+  );
+
+  // ───────── Profile: always visible ─────────
+  if (variant === "profile") {
+    return (
+      <div className="flex items-start gap-3">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src="/icon-192.png" alt="" width={44} height={44} className="h-11 w-11 shrink-0 rounded-xl" />
+        <div className="min-w-0 flex-1 space-y-1.5">
+          <p className="font-semibold">
+            📱 App{" "}
+            {installed && <span className="ml-1 rounded-full bg-win-soft px-2 py-0.5 text-xs font-medium text-win">Installed ✓</span>}
+          </p>
+          {installed ? (
+            <p className="text-sm text-muted">You&apos;re using Gamblers as an app on this device.</p>
+          ) : (
+            <>
+              <p className="text-sm text-muted">{steps}</p>
+              {installButton}
+            </>
+          )}
+        </div>
+      </div>
+    );
   }
+
+  // ───────── Banner: phones (or when the browser offers install), until installed/dismissed ─────────
+  if (installed || dismissed || (platform === "desktop" && !installEvent)) return null;
 
   return (
     <div className="flex items-start gap-3 rounded-2xl border border-accent/30 bg-accent-soft p-4">
@@ -71,19 +121,7 @@ export function InstallHint() {
       <img src="/icon-192.png" alt="" width={44} height={44} className="h-11 w-11 shrink-0 rounded-xl" />
       <div className="min-w-0 flex-1 space-y-1.5">
         <p className="font-semibold text-ink">Get Gamblers as an app</p>
-        {mode === "ios" ? (
-          <p className="text-sm text-ink-2">
-            In Safari, tap <b>Share</b> <span aria-hidden>(the square with an arrow)</span> → <b>Add to Home Screen</b>.
-          </p>
-        ) : installEvent ? (
-          <button type="button" onClick={install} className="rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-white hover:bg-accent-hover">
-            Install app
-          </button>
-        ) : (
-          <p className="text-sm text-ink-2">
-            Open the browser menu <b>⋮</b> → <b>Add to Home screen</b> (or <b>Install app</b>).
-          </p>
-        )}
+        {installButton ?? <p className="text-sm text-ink-2">{steps}</p>}
       </div>
       <button type="button" onClick={dismiss} aria-label="Hide" className="shrink-0 rounded-lg px-2 py-1 text-muted hover:bg-surface hover:text-ink">
         ✕

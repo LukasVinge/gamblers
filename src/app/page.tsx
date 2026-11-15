@@ -42,6 +42,7 @@ function Landing() {
           I have an invite
         </Link>
       </div>
+      <InstallHint />
     </section>
   );
 }

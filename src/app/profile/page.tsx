@@ -4,6 +4,7 @@ import { getMainGroup } from "@/lib/group";
 import { fmtUnits, profitClass } from "@/lib/format";
 import type { LeaderboardRow } from "@/lib/types";
 import { AvatarUploader } from "@/components/AvatarUploader";
+import { InstallHint } from "@/components/InstallHint";
 import { NotificationToggle } from "@/components/NotificationToggle";
 import { btnPrimary, Card, Field, inputCls, Notice } from "@/components/ui";
 
@@ -58,6 +59,10 @@ export default async function ProfilePage({ searchParams }: { searchParams: Prom
             </div>
           </dl>
         )}
+      </Card>
+
+      <Card className="p-5">
+        <InstallHint variant="profile" />
       </Card>
 
       <Card className="p-5">
