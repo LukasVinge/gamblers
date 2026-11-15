@@ -19,7 +19,9 @@ import { BetFields } from "@/components/BetFields";
 import { ManualMatchFields } from "@/components/ManualMatchFields";
 import { NotInGroup } from "@/components/GroupHeader";
 import { MatchPicker, type PickerMatch, type PickerTeam } from "@/components/MatchPicker";
+import { ScannedFormHydrator } from "@/components/ScannedFormHydrator";
 import { SelectionInput, type SquadPlayer } from "@/components/SelectionInput";
+import { SlipScanner } from "@/components/SlipScanner";
 import { TeamLogo } from "@/components/TeamLogo";
 import { btnPrimary, Card, Notice } from "@/components/ui";
 
@@ -30,7 +32,11 @@ function Steps({ step }: { step: 1 | 2 }) {
     <span className={`flex items-center gap-2 ${step === n ? "text-ink" : "text-faint"}`}>
       <span
         className={`grid h-6 w-6 place-items-center rounded-full text-xs font-bold ${
-          step === n ? "bg-accent text-white" : step > n ? "bg-win-soft text-win" : "bg-subtle text-faint"
+          step === n
+            ? "bg-accent text-white"
+            : step > n
+              ? "bg-win-soft text-win"
+              : "bg-subtle text-faint"
         }`}
       >
         {step > n ? "✓" : n}
@@ -47,14 +53,19 @@ function Steps({ step }: { step: 1 | 2 }) {
   );
 }
 
-const toPickerTeam = (t: Team): PickerTeam => ({ name: teamName(t), full: t.name, tla: t.tla, crest: t.crest });
+const toPickerTeam = (t: Team): PickerTeam => ({
+  name: teamName(t),
+  full: t.name,
+  tla: t.tla,
+  crest: t.crest,
+});
 
 export default async function NewTipPage({
   searchParams,
 }: {
-  searchParams: Promise<{ error?: string; fixture?: string; manual?: string }>;
+  searchParams: Promise<{ error?: string; fixture?: string; manual?: string; scanned?: string }>;
 }) {
-  const { error, fixture, manual } = await searchParams;
+  const { error, fixture, manual, scanned } = await searchParams;
   const supabase = await createClient();
 
   const [group, { data: bookmakers }] = await Promise.all([
@@ -89,7 +100,7 @@ export default async function NewTipPage({
     try {
       const now = Date.now();
       const upcoming = (await getUpcomingMatches(10)).filter(
-        (m) => (m.status === "SCHEDULED" || m.status === "TIMED") && Date.parse(m.utcDate) > now,
+        (m) => (m.status === "SCHEDULED" || m.status === "TIMED") && Date.parse(m.utcDate) > now
       );
       const counts = new Map<number, number>();
       if (upcoming.length) {
@@ -97,7 +108,10 @@ export default async function NewTipPage({
           .from("tips")
           .select("fixture_id")
           .eq("group_id", group.id)
-          .in("fixture_id", upcoming.map((m) => m.id));
+          .in(
+            "fixture_id",
+            upcoming.map((m) => m.id)
+          );
         (data ?? []).forEach((r: { fixture_id: number | null }) => {
           if (r.fixture_id) counts.set(r.fixture_id, (counts.get(r.fixture_id) ?? 0) + 1);
         });
@@ -117,7 +131,8 @@ export default async function NewTipPage({
         };
       });
     } catch {
-      loadProblem = "Couldn't load this week's matches right now – you can still enter a match manually.";
+      loadProblem =
+        "Couldn't load this week's matches right now – you can still enter a match manually.";
     }
 
     return (
@@ -131,13 +146,17 @@ export default async function NewTipPage({
         </div>
         <Notice error={error ?? matchProblem ?? loadProblem} />
 
+        <SlipScanner />
+
         <Link
           href="/new?manual=1"
           className="flex items-center justify-between gap-3 rounded-2xl border border-dashed border-line-strong bg-surface px-4 py-3 transition hover:border-accent hover:bg-accent-soft/40"
         >
           <span>
             <span className="block font-semibold">Other league or sport</span>
-            <span className="block text-sm text-muted">Superliga, Europa League, tennis… – enter the teams, date and time yourself</span>
+            <span className="block text-sm text-muted">
+              Superliga, Europa League, tennis… – enter the teams, date and time yourself
+            </span>
           </span>
           <span className="shrink-0 text-lg font-semibold text-accent" aria-hidden>
             →
@@ -145,8 +164,13 @@ export default async function NewTipPage({
         </Link>
 
         <div className="space-y-2">
-          <h2 className="text-sm font-semibold text-ink-2">…or pick a match from the top 5 leagues or the Champions League</h2>
-          <MatchPicker matches={picker} leagues={COMPETITIONS.map((c) => ({ code: c.code, name: c.name }))} />
+          <h2 className="text-sm font-semibold text-ink-2">
+            …or pick a match from the top 5 leagues or the Champions League
+          </h2>
+          <MatchPicker
+            matches={picker}
+            leagues={COMPETITIONS.map((c) => ({ code: c.code, name: c.name }))}
+          />
         </div>
       </div>
     );
@@ -156,14 +180,20 @@ export default async function NewTipPage({
   const home = match ? teamName(match.homeTeam) : undefined;
   const away = match ? teamName(match.awayTeam) : undefined;
 
-  // Both squads, for the player search (missing squads just mean no suggestions).
   let players: SquadPlayer[] = [];
   if (match) {
     const m = match;
-    const [hs, as] = await Promise.allSettled([getSquad(m.homeTeam.id), getSquad(m.awayTeam.id)]);
+    const [hs, as] = await Promise.allSettled([
+      getSquad(m.homeTeam.id),
+      getSquad(m.awayTeam.id),
+    ]);
     players = [
-      ...(hs.status === "fulfilled" ? hs.value.map((p) => ({ name: p.name, team: home!, position: p.position })) : []),
-      ...(as.status === "fulfilled" ? as.value.map((p) => ({ name: p.name, team: away!, position: p.position })) : []),
+      ...(hs.status === "fulfilled"
+        ? hs.value.map((p) => ({ name: p.name, team: home!, position: p.position }))
+        : []),
+      ...(as.status === "fulfilled"
+        ? as.value.map((p) => ({ name: p.name, team: away!, position: p.position }))
+        : []),
     ];
   }
 
@@ -180,6 +210,7 @@ export default async function NewTipPage({
 
       <Card className="p-5">
         <form action={createTip} className="space-y-5">
+          <ScannedFormHydrator active={scanned === "1"} />
           <input type="hidden" name="groupId" value={group.id} />
 
           {match ? (
@@ -188,8 +219,13 @@ export default async function NewTipPage({
               <div className="rounded-xl bg-subtle p-4 ring-1 ring-line">
                 <div className="mb-3 flex items-center justify-between gap-2 text-xs text-muted">
                   <span className="flex items-center gap-1.5">
-                    <TeamLogo src={match.competition.emblem} name={match.competition.name} size={14} />
-                    {competitionName(match.competition.code, match.competition.name)} · {fmtKickoff(match.utcDate)}
+                    <TeamLogo
+                      src={match.competition.emblem}
+                      name={match.competition.name}
+                      size={14}
+                    />
+                    {competitionName(match.competition.code, match.competition.name)} ·{" "}
+                    {fmtKickoff(match.utcDate)}
                   </span>
                   <Link href="/new" className="font-medium text-accent hover:underline">
                     Change
@@ -209,7 +245,9 @@ export default async function NewTipPage({
               </div>
 
               <fieldset className="space-y-1.5">
-                <legend className="mb-1.5 text-xs font-medium uppercase tracking-wide text-muted">What are you betting on?</legend>
+                <legend className="mb-1.5 text-xs font-medium uppercase tracking-wide text-muted">
+                  What are you betting on?
+                </legend>
                 <SelectionInput home={home} away={away} players={players} />
               </fieldset>
             </>

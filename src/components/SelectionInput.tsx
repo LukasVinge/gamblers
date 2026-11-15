@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { matchesQuery, norm } from "@/lib/search";
 import { inputCls } from "./ui";
 
@@ -41,11 +41,18 @@ function playerPick(player: string, market: MarketKey, count: number) {
   }
 }
 
-const POS_SHORT: Record<string, string> = { Offence: "FW", Midfield: "MF", Defence: "DF", Goalkeeper: "GK" };
+const POS_SHORT: Record<string, string> = {
+  Offence: "FW",
+  Midfield: "MF",
+  Defence: "DF",
+  Goalkeeper: "GK",
+};
 
 function chip(active: boolean) {
   return `rounded-full px-3 py-1.5 text-sm ring-1 transition ${
-    active ? "bg-accent text-white ring-accent" : "bg-surface text-ink-2 ring-line hover:ring-line-strong"
+    active
+      ? "bg-accent text-white ring-accent"
+      : "bg-surface text-ink-2 ring-line hover:ring-line-strong"
   }`;
 }
 
@@ -59,11 +66,16 @@ export function SelectionInput({
   home?: string;
   away?: string;
   players?: SquadPlayer[];
-  /** Existing pick when editing: 1X2 picks reopen on the 1 X 2 tab, anything else under "Other". */
   initial?: string;
 }) {
   const initialResult =
-    initial === (home ? `${home} to win` : "Home win") ? "1" : initial === "Draw" ? "X" : initial === (away ? `${away} to win` : "Away win") ? "2" : null;
+    initial === (home ? `${home} to win` : "Home win")
+      ? "1"
+      : initial === "Draw"
+        ? "X"
+        : initial === (away ? `${away} to win` : "Away win")
+          ? "2"
+          : null;
   const [mode, setMode] = useState<Mode>(initial && !initialResult ? "other" : "1x2");
   const [result, setResult] = useState<"1" | "X" | "2" | null>(initialResult);
   const [player, setPlayer] = useState("");
@@ -72,13 +84,37 @@ export function SelectionInput({
   const [count, setCount] = useState(1);
   const [other, setOther] = useState(initial && !initialResult ? initial : "");
 
+  // Fang scannet spilvalg fra SlipScanner automatisk
+  useEffect(() => {
+    const raw = sessionStorage.getItem("rg_scanned_slip");
+    if (!raw) return;
+    try {
+      const data = JSON.parse(raw);
+      if (typeof data.selection === "string" && data.selection.trim()) {
+        setMode("other");
+        setOther(data.selection.trim());
+      }
+    } catch {
+      // ignorer
+    }
+  }, []);
+
   const homeName = home ?? "Home";
   const awayName = away ?? "Away";
 
-  const indexed = useMemo(() => players.map((p) => ({ p, text: norm(`${p.name} ${p.team}`) })), [players]);
+  const indexed = useMemo(
+    () => players.map((p) => ({ p, text: norm(`${p.name} ${p.team}`) })),
+    [players]
+  );
   const suggestions = useMemo(
-    () => (player.trim() ? indexed.filter(({ text }) => matchesQuery(text, player)).slice(0, 8).map(({ p }) => p) : []),
-    [indexed, player],
+    () =>
+      player.trim()
+        ? indexed
+            .filter(({ text }) => matchesQuery(text, player))
+            .slice(0, 8)
+            .map(({ p }) => p)
+        : [],
+    [indexed, player]
   );
 
   const marketDef = MARKETS.find((m) => m.key === market)!;
@@ -86,11 +122,15 @@ export function SelectionInput({
   const selection =
     mode === "1x2"
       ? result === "1"
-        ? home ? `${home} to win` : "Home win"
+        ? home
+          ? `${home} to win`
+          : "Home win"
         : result === "X"
           ? "Draw"
           : result === "2"
-            ? away ? `${away} to win` : "Away win"
+            ? away
+              ? `${away} to win`
+              : "Away win"
             : ""
       : mode === "player"
         ? playerPick(player, market, count)
@@ -113,7 +153,9 @@ export function SelectionInput({
             type="button"
             onClick={() => setMode(k)}
             className={`flex-1 rounded-lg px-3 py-1.5 text-sm font-medium transition ${
-              mode === k ? "bg-surface text-ink shadow-sm ring-1 ring-line" : "text-muted hover:text-ink"
+              mode === k
+                ? "bg-surface text-ink shadow-sm ring-1 ring-line"
+                : "text-muted hover:text-ink"
             }`}
           >
             {label}
@@ -135,11 +177,19 @@ export function SelectionInput({
               type="button"
               onClick={() => setResult(k)}
               className={`flex flex-col items-center gap-0.5 rounded-xl px-2 py-3 ring-1 transition ${
-                result === k ? "bg-accent text-white ring-accent" : "bg-surface text-ink ring-line hover:ring-line-strong"
+                result === k
+                  ? "bg-accent text-white ring-accent"
+                  : "bg-surface text-ink ring-line hover:ring-line-strong"
               }`}
             >
               <span className="text-lg font-bold">{k}</span>
-              <span className={`w-full truncate text-xs ${result === k ? "text-white/85" : "text-muted"}`}>{label}</span>
+              <span
+                className={`w-full truncate text-xs ${
+                  result === k ? "text-white/85" : "text-muted"
+                }`}
+              >
+                {label}
+              </span>
             </button>
           ))}
         </div>
@@ -177,7 +227,9 @@ export function SelectionInput({
                       <span className="font-medium text-ink">{p.name}</span>
                       <span className="shrink-0 text-xs text-muted">
                         {p.team}
-                        {p.position && POS_SHORT[p.position] ? ` · ${POS_SHORT[p.position]}` : ""}
+                        {p.position && POS_SHORT[p.position]
+                          ? ` · ${POS_SHORT[p.position]}`
+                          : ""}
                       </span>
                     </button>
                   </li>
@@ -204,9 +256,16 @@ export function SelectionInput({
 
           {marketDef.max > 0 && (
             <div className="flex items-center gap-2">
-              <span className="text-xs font-medium uppercase tracking-wide text-muted">How many</span>
+              <span className="text-xs font-medium uppercase tracking-wide text-muted">
+                How many
+              </span>
               {Array.from({ length: marketDef.max }, (_, i) => i + 1).map((n) => (
-                <button key={n} type="button" onClick={() => setCount(n)} className={`${chip(count === n)} min-w-11 font-mono`}>
+                <button
+                  key={n}
+                  type="button"
+                  onClick={() => setCount(n)}
+                  className={`${chip(count === n)} min-w-11 font-mono`}
+                >
                   {n}+
                 </button>
               ))}
@@ -227,9 +286,20 @@ export function SelectionInput({
       )}
 
       <div className="rounded-xl bg-accent-soft px-4 py-3">
-        <p className="text-xs font-medium uppercase tracking-wide text-accent-ink/70">Your pick</p>
-        <p className={`text-lg font-semibold ${selection ? "text-accent-ink" : "text-accent-ink/40"}`}>
-          {selection || (mode === "player" ? "Choose a player and a bet" : mode === "1x2" ? "Tap 1, X or 2" : "Write your pick")}
+        <p className="text-xs font-medium uppercase tracking-wide text-accent-ink/70">
+          Your pick
+        </p>
+        <p
+          className={`text-lg font-semibold ${
+            selection ? "text-accent-ink" : "text-accent-ink/40"
+          }`}
+        >
+          {selection ||
+            (mode === "player"
+              ? "Choose a player and a bet"
+              : mode === "1x2"
+                ? "Tap 1, X or 2"
+                : "Write your pick")}
         </p>
       </div>
     </div>
