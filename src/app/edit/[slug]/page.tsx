@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { updateTip } from "../../actions";
-import { createClient } from "@/lib/supabase/server";
+import { getAuth } from "@/lib/supabase/server";
 import { fmtKickoff } from "@/lib/format";
 import { getMatch, getSquad, hasApiKey } from "@/lib/footballData";
 import { TIP_SELECT, toTipView, type TipRow } from "@/lib/types";
@@ -21,10 +21,7 @@ export default async function EditTipPage({
 }) {
   const { slug } = await params;
   const { error } = await searchParams;
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const { supabase, user } = await getAuth();
 
   const [{ data: row }, { data: bookmakers }] = await Promise.all([
     supabase.from("tips").select(TIP_SELECT).eq("share_slug", slug).maybeSingle(),

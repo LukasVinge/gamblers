@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { joinGroup } from "../../actions";
-import { createClient } from "@/lib/supabase/server";
+import { getAuth } from "@/lib/supabase/server";
 import { btnPrimary, Card, Notice } from "@/components/ui";
 
 export const metadata = { title: "Join group" };
@@ -15,10 +15,7 @@ export default async function JoinPage({
 }) {
   const { code } = await params;
   const { error } = await searchParams;
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const { supabase, user } = await getAuth();
 
   // Not logged in → sign up with this invite code (the signup links to login for existing users).
   if (!user) redirect(`/signup?code=${encodeURIComponent(code)}`);

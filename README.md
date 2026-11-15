@@ -87,3 +87,10 @@ The Kampprogram page pulls the next 10 days of matches from [football-data.org](
 3. Restart `npm run dev`.
 
 The free plan allows 10 requests/minute; everything is cached (fixtures 10 min, league tables 6 h), so normal use stays far below that. Nations League / qualifiers and the Superliga are not in the free plan.
+
+## Notifications (new spilforslag)
+Members can turn on push notifications per device (Profile → Notifications, or the 🔔 card on the Spilforslag page). When someone posts a tip, everyone else gets a notification that opens the tip.
+
+1. Run [`supabase/migrations/0009_push_notifications.sql`](supabase/migrations/0009_push_notifications.sql) in Supabase's SQL Editor.
+2. Add `NEXT_PUBLIC_VAPID_PUBLIC_KEY` and `VAPID_PRIVATE_KEY` (from `.env.local`) to Vercel's environment variables and redeploy. To make new keys: `npx web-push generate-vapid-keys` – everyone then has to turn notifications on again.
+3. iPhone: notifications only work in the installed app (Safari → Share → Add to Home Screen), iOS 16.4 or newer.

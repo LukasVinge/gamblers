@@ -2,7 +2,10 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
+import { after } from "next/server";
+import { createClient, getAuth, getMyProfile } from "@/lib/supabase/server";
+import { fmtKickoff, fmtOdds } from "@/lib/format";
+import { pushConfigured, sendPush, type PushTarget } from "@/lib/push";
 import { getBaseUrl } from "@/lib/url";
 import { competitionName, getMatch, isCrestUrl, teamName } from "@/lib/footballData";
 import { TIP_STATUSES, type TipStatus } from "@/lib/types";
@@ -169,12 +172,62 @@ export async function createTip(fd: FormData) {
       stake_units: stake,
       reasoning,
     })
-    .select("share_slug")
+    .select("id, share_slug")
     .single();
 
   if (error) fail(error.message);
+
+  // 🔔 Tell the other members. The devices are fetched now; the sending happens after the response,
+  // so posting a tip isn't slowed down. A notification failure never blocks the tip.
+  if (pushConfigured()) {
+    try {
+      const [{ data: targets }, me] = await Promise.all([supabase.rpc("get_push_targets", { p_tip: data.id }), getMyProfile()]);
+      const list = (targets ?? []) as PushTarget[];
+      if (list.length > 0) {
+        const payload = {
+          title: `@${me?.username ?? "Someone"}: ${selection} @ ${fmtOdds(boosted ?? odds)}`,
+          body: `${home} vs ${away} · ${fmtKickoff(kickoff)}`,
+          url: `/t/${data.share_slug}`,
+          tag: `tip-${data.id}`,
+        };
+        after(async () => {
+          const dead = await sendPush(list, payload);
+          if (dead.length > 0) await supabase.rpc("remove_push_subscriptions", { p_endpoints: dead });
+        });
+      }
+    } catch (e) {
+      console.error("push notification setup failed", e);
+    }
+  }
+
   revalidatePath("/");
   redirect(`/t/${data.share_slug}?posted=1`);
+}
+
+// ───────── 🔔 notifications ─────────
+
+/** Turn notifications on for this device (called from the browser after the user allows them). */
+export async function savePushSubscription(sub: { endpoint: string; p256dh: string; auth: string; userAgent?: string }): Promise<{ error?: string }> {
+  const { supabase, user } = await getAuth();
+  if (!user) return { error: "Log in first." };
+  const { error } = await supabase.rpc("save_push_subscription", {
+    p_endpoint: sub.endpoint,
+    p_p256dh: sub.p256dh,
+    p_auth: sub.auth,
+    p_user_agent: sub.userAgent ?? null,
+  });
+  if (error) {
+    return { error: error.code === "PGRST202" ? "Notifications aren't set up in the database yet (migration 0009)." : error.message };
+  }
+  return {};
+}
+
+/** Turn notifications off for this device. */
+export async function deletePushSubscription(endpoint: string): Promise<{ error?: string }> {
+  const { supabase, user } = await getAuth();
+  if (!user) return {};
+  const { error } = await supabase.from("push_subscriptions").delete().eq("endpoint", endpoint);
+  return error ? { error: error.message } : {};
 }
 
 /** Pick, odds, bookmaker, stake and reasoning from the form – same rules for posting and editing. */
@@ -291,10 +344,7 @@ export async function updateUsername(fd: FormData) {
   const username = str(fd, "username");
   if (!/^[a-zA-Z0-9_]{3,20}$/.test(username)) redirect(withParam("/profile", "error", "Username: 3–20 letters, numbers or _"));
 
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const { supabase, user } = await getAuth();
   if (!user) redirect("/login");
 
   const { error } = await supabase.from("profiles").update({ username }).eq("id", user.id);
@@ -309,10 +359,7 @@ export async function updateUsername(fd: FormData) {
 
 /** Join or leave a tip ("I'm playing this too"). Called from the button without a page reload. */
 export async function toggleTail(tipId: string, join: boolean): Promise<{ error?: string }> {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const { supabase, user } = await getAuth();
   if (!user) return { error: "Log in first." };
 
   const { error } = join

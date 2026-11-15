@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
+import { getAuth, getMyProfile } from "@/lib/supabase/server";
 import { fmtKickoff, fmtOdds, effectiveOdds } from "@/lib/format";
 import { getSharedTip } from "@/lib/sharedTip";
 import { getBaseUrl } from "@/lib/url";
@@ -39,35 +39,29 @@ export default async function SharedTipPage({ params, searchParams }: Props) {
   const tip = await getSharedTip(slug);
   if (!tip) notFound();
 
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const { supabase, user } = await getAuth();
 
   let isMember = false;
   let canSettle = false;
   const canEdit = user?.id === tip.author_id && tip.status === "pending" && Date.parse(tip.kickoff_at) > Date.now();
+  // 🤝 Who's on this tip (members only – the database returns nothing for non-members)
+  let tailUsers: TailUser[] = [];
+  let me: TailUser | null = null;
   if (user) {
-    const [{ data: member }, { data: admin }] = await Promise.all([
+    // One parallel round trip: membership, admin rights, who's on it, and your own profile (shared with the top bar).
+    const [{ data: member }, { data: admin }, tails, myProfile] = await Promise.all([
       supabase.rpc("is_member", { p_group: tip.group_id }),
       supabase.rpc("is_admin", { p_group: tip.group_id }),
+      getTails(supabase, [tip.id]),
+      getMyProfile(),
     ]);
     isMember = Boolean(member);
     canSettle =
       (tip.author_id === user.id || Boolean(admin)) && (Date.parse(tip.kickoff_at) <= Date.now() || tip.status !== "pending");
-  }
-
-  // 🤝 Who's on this tip (members only)
-  let tailUsers: TailUser[] = [];
-  let me: TailUser | null = null;
-  if (user && isMember) {
-    const [tails, { data: myProfile }] = await Promise.all([
-      getTails(supabase, [tip.id]),
-      supabase.from("profiles").select("username, avatar_url").eq("id", user.id).maybeSingle(),
-    ]);
-    tailUsers = tails.get(tip.id) ?? [];
-    const p = myProfile as { username: string; avatar_url?: string | null } | null;
-    me = { user_id: user.id, username: p?.username ?? "me", avatar_url: p?.avatar_url ?? null };
+    if (isMember) {
+      tailUsers = tails.get(tip.id) ?? [];
+      me = { user_id: user.id, username: myProfile?.username ?? "me", avatar_url: myProfile?.avatar_url ?? null };
+    }
   }
   const canTail = Boolean(me) && tip.author_id !== user?.id && tip.status === "pending" && Date.parse(tip.kickoff_at) > Date.now();
 

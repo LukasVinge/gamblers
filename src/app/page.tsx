@@ -1,7 +1,7 @@
 import Link from "next/link";
 import QRCode from "qrcode";
 import { deleteTip, regenerateInvite } from "./actions";
-import { createClient } from "@/lib/supabase/server";
+import { getAuth } from "@/lib/supabase/server";
 import { getMainGroup } from "@/lib/group";
 import { getBaseUrl } from "@/lib/url";
 import { getTails, type TailUser } from "@/lib/tails";
@@ -10,6 +10,8 @@ import { TIP_SELECT, toTipView, type TipRow } from "@/lib/types";
 import { GroupHeader, NotInGroup } from "@/components/GroupHeader";
 import { SegmentedLinks } from "@/components/Segmented";
 import { Avatar } from "@/components/Avatar";
+import { InstallHint } from "@/components/InstallHint";
+import { NotificationToggle } from "@/components/NotificationToggle";
 import { RemoveMemberButton } from "@/components/RemoveMemberButton";
 import { TailButton } from "@/components/TailButton";
 import { SettleForm } from "@/components/SettleForm";
@@ -49,10 +51,7 @@ export default async function Home({
 }: {
   searchParams: Promise<{ view?: string; error?: string; notice?: string; fixture?: string }>;
 }) {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const { supabase, user } = await getAuth();
   if (!user) return <Landing />;
 
   const group = await getMainGroup(supabase);
@@ -80,34 +79,28 @@ export default async function Home({
   const members = (memberRows ?? []) as unknown as Member[];
   const isAdmin = members.some((m) => m.user_id === user.id && m.role === "admin");
 
-  // 🤝 Who's on which tip + "me" for the instant toggle
-  const tails = await getTails(supabase, tips.map((t) => t.id));
   const meMember = members.find((m) => m.user_id === user.id);
   const me: TailUser | null = meMember
     ? { user_id: user.id, username: meMember.profile?.username ?? "me", avatar_url: meMember.profile?.avatar_url ?? null }
     : null;
 
-  // Tip count per member – shown in the admin's "Remove" dialog.
-  const tipCounts = new Map<string, number>();
-  if (isAdmin) {
-    const { data: authors } = await supabase.from("tips").select("author_id").eq("group_id", id);
-    (authors ?? []).forEach((r: { author_id: string }) => tipCounts.set(r.author_id, (tipCounts.get(r.author_id) ?? 0) + 1));
-  }
+  // One parallel round trip for everything else:
+  //  · 🤝 who's on which tip
+  //  · (admin) tip count per member for the "Remove" dialog
+  //  · (admin) the invite code – the database hides it from everyone else
+  const [tails, authorsRes, inviteRes, baseUrl] = await Promise.all([
+    getTails(supabase, tips.map((t) => t.id)),
+    isAdmin ? supabase.from("tips").select("author_id").eq("group_id", id) : null,
+    isAdmin ? supabase.rpc("get_invite_code", { p_group: id }) : null,
+    getBaseUrl(),
+  ]);
 
-  const baseUrl = await getBaseUrl();
+  const tipCounts = new Map<string, number>();
+  ((authorsRes?.data ?? []) as { author_id: string }[]).forEach((r) => tipCounts.set(r.author_id, (tipCounts.get(r.author_id) ?? 0) + 1));
+
   const tipUrl = (slug: string) => `${baseUrl}/t/${slug}`;
-  // Only admins can invite: the invite code is only loaded for them (and the database hides it from others).
-  let inviteUrl: string | null = null;
-  if (isAdmin) {
-    const { data: code, error: codeError } = await supabase.rpc("get_invite_code", { p_group: id });
-    let inviteCode = codeError ? null : (code as string | null);
-    if (!inviteCode) {
-      // Fallback for databases where 0005_admin_only_invites.sql hasn't been run yet.
-      const { data: g } = await supabase.from("groups").select("invite_code").eq("id", id).maybeSingle();
-      inviteCode = (g as { invite_code?: string } | null)?.invite_code ?? null;
-    }
-    if (inviteCode) inviteUrl = `${baseUrl}/join/${inviteCode}`;
-  }
+  const inviteCode = inviteRes && !inviteRes.error ? (inviteRes.data as string | null) : null;
+  const inviteUrl = inviteCode ? `${baseUrl}/join/${inviteCode}` : null;
   const qrSvg = inviteUrl ? await QRCode.toString(inviteUrl, { type: "svg", margin: 1 }) : undefined;
   const now = Date.now();
   const back = `/?view=${view}`;
@@ -130,6 +123,8 @@ export default async function Home({
   return (
     <div className="space-y-6">
       <GroupHeader active="tips" />
+      <InstallHint />
+      <NotificationToggle variant="prompt" />
       <Notice error={sp.error} notice={sp.notice} />
 
       {(needsFriends || needsTips) && (

@@ -1,25 +1,19 @@
 import { updateUsername } from "../actions";
-import { createClient } from "@/lib/supabase/server";
+import { getAuth, getMyProfile } from "@/lib/supabase/server";
 import { getMainGroup } from "@/lib/group";
 import { fmtUnits, profitClass } from "@/lib/format";
 import type { LeaderboardRow } from "@/lib/types";
 import { AvatarUploader } from "@/components/AvatarUploader";
+import { NotificationToggle } from "@/components/NotificationToggle";
 import { btnPrimary, Card, Field, inputCls, Notice } from "@/components/ui";
 
 export const metadata = { title: "Profile" };
 
 export default async function ProfilePage({ searchParams }: { searchParams: Promise<{ error?: string; notice?: string }> }) {
   const sp = await searchParams;
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const { supabase, user } = await getAuth();
 
-  const [{ data: profile }, group] = await Promise.all([
-    supabase.from("profiles").select("username, avatar_url").eq("id", user!.id).maybeSingle(),
-    getMainGroup(supabase),
-  ]);
-  const me = profile as { username: string; avatar_url: string | null } | null;
+  const [me, group] = await Promise.all([getMyProfile(), getMainGroup(supabase)]);
   if (!me) return <Notice error="Couldn't load your profile." />;
 
   // All-time stats for the header card
@@ -64,6 +58,10 @@ export default async function ProfilePage({ searchParams }: { searchParams: Prom
             </div>
           </dl>
         )}
+      </Card>
+
+      <Card className="p-5">
+        <NotificationToggle />
       </Card>
 
       <Card className="p-5">

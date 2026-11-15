@@ -1,7 +1,8 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import Link from "next/link";
-import { createClient } from "@/lib/supabase/server";
+import { Suspense } from "react";
+import { getAuth, getMyProfile } from "@/lib/supabase/server";
 import { Avatar } from "@/components/Avatar";
 import { BottomTabs, TopTabs } from "@/components/NavTabs";
 import { signOut } from "./actions";
@@ -13,21 +14,32 @@ const geistMono = Geist_Mono({ variable: "--font-geist-mono", subsets: ["latin"]
 export const metadata: Metadata = {
   title: { default: "Gamblers", template: "%s · Gamblers" },
   description: "Share odds with your friends and see who actually wins.",
+  applicationName: "Gamblers",
+  // iPhone: run full screen with our own title when opened from the home screen
+  appleWebApp: { capable: true, title: "Gamblers", statusBarStyle: "default" },
+  formatDetection: { telephone: false },
 };
 
-export default async function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+export const viewport: Viewport = {
+  themeColor: "#ffffff",
+  viewportFit: "cover", // lets the bottom tab bar sit above the iPhone home indicator
+};
 
-  // Your own name + picture for the top bar.
-  let me: { username: string; avatar_url?: string | null } | null = null;
-  if (user) {
-    const { data, error } = await supabase.from("profiles").select("username, avatar_url").eq("id", user.id).maybeSingle();
-    if (!error) me = data;
-    else me = (await supabase.from("profiles").select("username").eq("id", user.id).maybeSingle()).data; // before migration 0007
-  }
+/** Your picture + name in the top bar. Loads on its own, so it never delays the page. */
+async function UserChip() {
+  const me = await getMyProfile();
+  if (!me) return null;
+  return (
+    <Link href="/profile" className="flex items-center gap-2 rounded-full py-1 pl-1 pr-2 text-sm font-medium text-ink-2 hover:bg-subtle" title="Your profile">
+      <Avatar url={me.avatar_url} name={me.username} size={30} />
+      <span className="hidden sm:inline">@{me.username}</span>
+    </Link>
+  );
+}
+
+export default async function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
+  // Local token check only – the layout never waits for the database, so the page starts loading at once.
+  const { user } = await getAuth();
 
   return (
     <html lang="en">
@@ -43,12 +55,9 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
             <div className="flex items-center gap-3">
               {user ? (
                 <>
-                  {me && (
-                    <Link href="/profile" className="flex items-center gap-2 rounded-full py-1 pl-1 pr-2 text-sm font-medium text-ink-2 hover:bg-subtle" title="Your profile">
-                      <Avatar url={me.avatar_url} name={me.username} size={30} />
-                      <span className="hidden sm:inline">@{me.username}</span>
-                    </Link>
-                  )}
+                  <Suspense fallback={<span className="h-[30px] w-[30px] rounded-full bg-subtle" />}>
+                    <UserChip />
+                  </Suspense>
                   <form action={signOut}>
                     <button className="text-sm text-muted hover:text-ink">Log out</button>
                   </form>

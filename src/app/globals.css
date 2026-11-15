@@ -42,3 +42,14 @@ body {
   background: var(--color-page);
   color: var(--color-ink);
 }
+
+/* Phones: iPhone Safari zooms the whole page in when you tap a text field whose text is smaller
+   than 16px – and doesn't zoom back out. Keeping form text at 16px on touch screens stops that,
+   while pinch-to-zoom still works for anyone who wants it. */
+@media (pointer: coarse), (max-width: 639px) {
+  input,
+  select,
+  textarea {
+    font-size: 16px;
+  }
+}
