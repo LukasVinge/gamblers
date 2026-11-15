@@ -119,13 +119,44 @@ export function SlipScanner() {
     return () => window.removeEventListener("paste", onPaste);
   }, [processFile]);
 
+  /**
+   * "Indsæt kupon": reads an image straight from the clipboard (e.g. bet365 → Share → Copy),
+   * so nothing has to be saved on the phone. Works on iPhone (Safari 13.4+) and Android Chrome;
+   * the phone shows a small "Paste" bubble the first time, which the user taps to allow it.
+   */
+  async function pasteFromClipboard() {
+    setError(null);
+    if (!navigator.clipboard || typeof navigator.clipboard.read !== "function") {
+      setError("Din browser kan ikke læse billeder fra udklipsholderen. Brug Upload i stedet.");
+      return;
+    }
+    let items: ClipboardItems;
+    try {
+      items = await navigator.clipboard.read();
+    } catch {
+      setError("Indsæt blev afvist. Tryk på \"Indsæt\"-boblen, når telefonen spørger – eller brug Upload.");
+      return;
+    }
+    for (const item of items) {
+      const type = item.types.find((t) => t.startsWith("image/"));
+      if (type) {
+        const blob = await item.getType(type);
+        await processFile(new File([blob], `kupon.${type.split("/")[1] || "png"}`, { type }));
+        return;
+      }
+    }
+    const hasText = items.some((i) => i.types.includes("text/plain"));
+    setError(
+      hasText
+        ? "Udklipsholderen indeholder tekst, ikke et billede. I bet365: tryk Del på spillet og vælg Kopiér billedet – eller tag et screenshot og brug Upload."
+        : "Der er intet billede i udklipsholderen. Kopiér kuponen i bet365 først (Del → Kopiér).",
+    );
+  }
+
   return (
     <div className="space-y-2">
       <div
-        onClick={() => !loading && inputRef.current?.click()}
-        className={`flex cursor-pointer items-center justify-between gap-3 rounded-2xl border border-accent/40 bg-accent-soft/40 px-4 py-3.5 transition hover:border-accent hover:bg-accent-soft/70 ${
-          loading ? "pointer-events-none opacity-70" : ""
-        }`}
+        className={`space-y-3 rounded-2xl border border-accent/40 bg-accent-soft/40 px-4 py-3.5 ${loading ? "pointer-events-none opacity-70" : ""}`}
       >
         <input
           ref={inputRef}
@@ -140,17 +171,34 @@ export function SlipScanner() {
         <div className="space-y-0.5">
           <span className="flex items-center gap-2 font-semibold text-ink">
             <span>📸</span>
-            <span>{loading ? "Aflæser kupon med AI…" : "Indsæt eller upload kupon (screenshot)"}</span>
+            <span>{loading ? "Aflæser kupon med AI…" : "Indsæt eller upload kupon"}</span>
           </span>
           <span className="block text-xs text-muted">
             {loading
               ? "Udtrækker hold, spilvalg og odds…"
-              : "Tryk Ctrl+V for at indsætte fra udklipsholder, eller tryk her for at vælge billede"}
+              : "Kopiér kuponen i bet365 (Del → Kopiér) og tryk Indsæt – eller upload et screenshot. På computer virker Ctrl+V også."}
           </span>
         </div>
-        <span className="shrink-0 rounded-lg bg-accent px-3 py-1.5 text-xs font-semibold text-white">
-          {loading ? "Arbejder…" : "Upload"}
-        </span>
+        <div className="grid grid-cols-2 gap-2">
+          <button
+            type="button"
+            onClick={pasteFromClipboard}
+            disabled={loading}
+            className="flex items-center justify-center gap-1.5 rounded-lg bg-accent px-3 py-2 text-sm font-semibold text-white hover:bg-accent-hover disabled:opacity-60"
+          >
+            <span aria-hidden>📋</span>
+            {loading ? "Arbejder…" : "Indsæt kupon"}
+          </button>
+          <button
+            type="button"
+            onClick={() => inputRef.current?.click()}
+            disabled={loading}
+            className="flex items-center justify-center gap-1.5 rounded-lg border border-line bg-surface px-3 py-2 text-sm font-semibold text-ink-2 hover:bg-subtle disabled:opacity-60"
+          >
+            <span aria-hidden>🖼️</span>
+            Upload
+          </button>
+        </div>
       </div>
 
       {error && <p className="text-xs font-medium text-loss">{error}</p>}
