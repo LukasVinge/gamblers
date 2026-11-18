@@ -6,7 +6,7 @@ const TZ = "Europe/Copenhagen";
 export const dayKey = (iso: string) => new Intl.DateTimeFormat("en-CA", { timeZone: TZ }).format(new Date(iso));
 
 export const timeOf = (iso: string) =>
-  new Intl.DateTimeFormat("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: TZ }).format(new Date(iso));
+  new Intl.DateTimeFormat("en-GB", { hour: "2-digit", minute: "2-digit", hourCycle: "h23", timeZone: TZ }).format(new Date(iso));
 
 /** "Today", "Tomorrow" or e.g. "Saturday 21 November". */
 export function dayLabel(key: string) {

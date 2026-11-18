@@ -5,6 +5,7 @@ import { Suspense } from "react";
 import { getAuth, getMyProfile } from "@/lib/supabase/server";
 import { Avatar } from "@/components/Avatar";
 import { BottomTabs, TopTabs } from "@/components/NavTabs";
+import { SPLASH_SCREENS } from "@/lib/splash.mjs";
 import { signOut } from "./actions";
 import "./globals.css";
 
@@ -16,8 +17,19 @@ export const metadata: Metadata = {
   description: "Share odds with your friends and see who actually wins.",
   applicationName: "Gamblers",
   // iPhone: run full screen with our own title when opened from the home screen
-  appleWebApp: { capable: true, title: "Gamblers", statusBarStyle: "default" },
+  appleWebApp: {
+    capable: true,
+    title: "Gamblers",
+    statusBarStyle: "default",
+    // Launch screens: shown at once when the app opens, instead of a blank (black) screen while the page loads
+    startupImage: SPLASH_SCREENS.map((s) => ({
+      url: `/splash/${s.w * s.r}x${s.h * s.r}.png`,
+      media: `(device-width: ${s.w}px) and (device-height: ${s.h}px) and (-webkit-device-pixel-ratio: ${s.r}) and (orientation: portrait)`,
+    })),
+  },
   formatDetection: { telephone: false },
+  // Next.js only writes the new "mobile-web-app-capable" tag; iPhone looks for the Apple one before using launch screens
+  other: { "apple-mobile-web-app-capable": "yes" },
 };
 
 export const viewport: Viewport = {

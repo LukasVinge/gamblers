@@ -1,6 +1,6 @@
 import { cache } from "react";
 import { createPublicClient } from "./supabase/server";
-import type { TipView } from "./types";
+import { normalizeLegs, type TipView } from "./types";
 
 export type SharedTip = TipView & { group_name: string };
 
@@ -12,6 +12,7 @@ export const getSharedTip = cache(async (slug: string): Promise<SharedTip | null
   const t = data as SharedTip;
   return {
     ...t,
+    legs: normalizeLegs(t.legs),
     odds: Number(t.odds),
     boosted_odds: t.boosted_odds === null ? null : Number(t.boosted_odds),
     stake_units: Number(t.stake_units),

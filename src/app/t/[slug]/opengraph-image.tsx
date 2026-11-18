@@ -1,5 +1,6 @@
 import { getSharedTip } from "@/lib/sharedTip";
 import { renderNotFoundImage, renderTipImage } from "@/lib/tipImage";
+import { getBaseUrl } from "@/lib/url";
 
 // The image shown when a tip link is pasted in Messenger, WhatsApp, Discord, Slack, …
 export const alt = "Shared tip on Gamblers";
@@ -8,6 +9,6 @@ export const contentType = "image/png";
 
 export default async function Image({ params }: { params: { slug: string } | Promise<{ slug: string }> }) {
   const { slug } = await params;
-  const tip = await getSharedTip(slug);
-  return tip ? renderTipImage(tip) : renderNotFoundImage();
+  const [tip, baseUrl] = await Promise.all([getSharedTip(slug), getBaseUrl()]);
+  return tip ? renderTipImage(tip, baseUrl) : renderNotFoundImage();
 }

@@ -4,7 +4,8 @@ import { updateTip } from "../../actions";
 import { getAuth } from "@/lib/supabase/server";
 import { fmtKickoff } from "@/lib/format";
 import { getMatch, getSquad, hasApiKey } from "@/lib/footballData";
-import { TIP_SELECT, toTipView, type TipRow } from "@/lib/types";
+import { isCombo, legsMissing, TIP_SELECT, TIP_SELECT_BASIC, toTipView, type TipRow } from "@/lib/types";
+import { ComboLegs } from "@/components/ComboLegs";
 import { BetFields } from "@/components/BetFields";
 import { SelectionInput, type SquadPlayer } from "@/components/SelectionInput";
 import { TeamLogo } from "@/components/TeamLogo";
@@ -23,10 +24,13 @@ export default async function EditTipPage({
   const { error } = await searchParams;
   const { supabase, user } = await getAuth();
 
-  const [{ data: row }, { data: bookmakers }] = await Promise.all([
-    supabase.from("tips").select(TIP_SELECT).eq("share_slug", slug).maybeSingle(),
+  const tipQuery = (select: string) => supabase.from("tips").select(select).eq("share_slug", slug).maybeSingle();
+  const [first, { data: bookmakers }] = await Promise.all([
+    tipQuery(TIP_SELECT),
     supabase.from("bookmakers").select("id, name, url").order("id"),
   ]);
+  // before migration 0012 there's no tip_legs table – load the tip without the combo matches
+  const { data: row } = legsMissing(first.error) ? await tipQuery(TIP_SELECT_BASIC) : first;
   if (!row) notFound();
   const tip = toTipView(row as unknown as TipRow);
 
@@ -73,28 +77,40 @@ export default async function EditTipPage({
             <input type="hidden" name="tipId" value={tip.id} />
             <input type="hidden" name="slug" value={tip.share_slug} />
 
-            <div className="rounded-xl bg-subtle p-4 ring-1 ring-line">
-              <p className="mb-3 text-xs text-muted">
-                {tip.league ? `${tip.league} · ` : ""}
-                {fmtKickoff(tip.kickoff_at)}
-              </p>
-              <div className="flex items-center justify-center gap-4 text-center">
-                <div className="flex flex-1 flex-col items-center gap-1.5">
-                  {hasLogos && <TeamLogo src={tip.home_logo} name={tip.home_team} size={40} />}
-                  <span className="text-sm font-semibold">{tip.home_team}</span>
-                </div>
-                <span className="text-muted">vs</span>
-                <div className="flex flex-1 flex-col items-center gap-1.5">
-                  {hasLogos && <TeamLogo src={tip.away_logo} name={tip.away_team} size={40} />}
-                  <span className="text-sm font-semibold">{tip.away_team}</span>
-                </div>
+            {isCombo(tip) ? (
+              <div className="space-y-2 rounded-xl bg-subtle p-4 ring-1 ring-line">
+                <p className="text-xs text-muted">
+                  🧩 Kombi · {tip.legs!.length} kampe – kampene kan ikke ændres (slet og lav den igen før kampstart)
+                </p>
+                <ComboLegs legs={tip.legs!} />
+                <input type="hidden" name="selection" value={tip.selection} />
               </div>
-            </div>
+            ) : (
+              <>
+                <div className="rounded-xl bg-subtle p-4 ring-1 ring-line">
+                  <p className="mb-3 text-xs text-muted">
+                    {tip.league ? `${tip.league} · ` : ""}
+                    {fmtKickoff(tip.kickoff_at)}
+                  </p>
+                  <div className="flex items-center justify-center gap-4 text-center">
+                    <div className="flex flex-1 flex-col items-center gap-1.5">
+                      {hasLogos && <TeamLogo src={tip.home_logo} name={tip.home_team} size={40} />}
+                      <span className="text-sm font-semibold">{tip.home_team}</span>
+                    </div>
+                    <span className="text-muted">vs</span>
+                    <div className="flex flex-1 flex-col items-center gap-1.5">
+                      {hasLogos && <TeamLogo src={tip.away_logo} name={tip.away_team} size={40} />}
+                      <span className="text-sm font-semibold">{tip.away_team}</span>
+                    </div>
+                  </div>
+                </div>
 
-            <fieldset className="space-y-1.5">
-              <legend className="mb-1.5 text-xs font-medium uppercase tracking-wide text-muted">What are you betting on?</legend>
-              <SelectionInput home={tip.home_team} away={tip.away_team} players={players} initial={tip.selection} />
-            </fieldset>
+                <fieldset className="space-y-1.5">
+                  <legend className="mb-1.5 text-xs font-medium uppercase tracking-wide text-muted">What are you betting on?</legend>
+                  <SelectionInput home={tip.home_team} away={tip.away_team} players={players} initial={tip.selection} />
+                </fieldset>
+              </>
+            )}
 
             <BetFields
               bookmakers={bookmakers ?? []}
@@ -104,6 +120,7 @@ export default async function EditTipPage({
                 boosted_odds: tip.boosted_odds,
                 stake_units: tip.stake_units,
                 reasoning: tip.reasoning,
+                promo: tip.promo,
               }}
             />
 

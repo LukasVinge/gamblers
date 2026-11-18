@@ -12,6 +12,8 @@ export type PickerMatch = {
   day: string; // YYYY-MM-DD
   dayLabel: string;
   time: string;
+  /** exact kickoff (ISO, UTC) */
+  kickoffIso: string;
   leagueCode: string;
   league: string;
   home: PickerTeam;
@@ -20,11 +22,43 @@ export type PickerMatch = {
 };
 
 
+const ROW = "flex w-full items-center gap-3 px-4 py-3 text-left transition hover:bg-accent-soft/60";
+
+/** A link to the match's bet page – or, in the combo builder, a button that adds it to the slip. */
+function MatchRow({ match, onPick, children }: { match: PickerMatch; onPick?: (m: PickerMatch) => void; children: React.ReactNode }) {
+  return onPick ? (
+    <button type="button" onClick={() => onPick(match)} className={ROW}>
+      {children}
+    </button>
+  ) : (
+    <Link href={`/new?fixture=${match.id}`} className={ROW}>
+      {children}
+    </Link>
+  );
+}
+
 function haystack(m: PickerMatch) {
   return norm([m.home.name, m.home.full, m.home.tla, m.away.name, m.away.full, m.away.tla, m.league].filter(Boolean).join(" "));
 }
 
-export function MatchPicker({ matches, leagues }: { matches: PickerMatch[]; leagues: { code: string; name: string }[] }) {
+/**
+ * Search + league filter over the coming matches. Normally each match links to /new?fixture=…;
+ * with onPick (the combo builder) a tap calls onPick instead, and onManual replaces the "enter manually" link.
+ */
+export function MatchPicker({
+  matches,
+  leagues,
+  onPick,
+  onManual,
+  exclude,
+}: {
+  matches: PickerMatch[];
+  leagues: { code: string; name: string }[];
+  onPick?: (m: PickerMatch) => void;
+  onManual?: () => void;
+  /** match ids already on the slip – hidden from the list */
+  exclude?: number[];
+}) {
   const [query, setQuery] = useState("");
   const [league, setLeague] = useState<string | null>(null);
 
@@ -32,9 +66,9 @@ export function MatchPicker({ matches, leagues }: { matches: PickerMatch[]; leag
 
   const results = useMemo(() => {
     return indexed
-      .filter(({ m, text }) => (!league || m.leagueCode === league) && matchesQuery(text, query))
+      .filter(({ m, text }) => (!league || m.leagueCode === league) && !exclude?.includes(m.id) && matchesQuery(text, query))
       .map(({ m }) => m);
-  }, [indexed, query, league]);
+  }, [indexed, query, league, exclude]);
 
   const days = useMemo(() => {
     const map = new Map<string, { label: string; list: PickerMatch[] }>();
@@ -55,7 +89,7 @@ export function MatchPicker({ matches, leagues }: { matches: PickerMatch[]; leag
         </svg>
         <input
           type="search"
-          autoFocus
+          autoFocus={!onPick}
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Search team – e.g. Arsenal, Bayern, Real…"
@@ -77,9 +111,15 @@ export function MatchPicker({ matches, leagues }: { matches: PickerMatch[]; leag
           {matches.length === 0
             ? "No matches in the next 10 days."
             : `No match found${query ? ` for “${query}”` : ""}.`}{" "}
-          <Link href="/new?manual=1" className="font-medium text-accent hover:underline">
-            Enter the match manually
-          </Link>
+          {onManual ? (
+            <button type="button" onClick={onManual} className="font-medium text-accent hover:underline">
+              Enter the match manually
+            </button>
+          ) : (
+            <Link href="/new?manual=1" className="font-medium text-accent hover:underline">
+              Enter the match manually
+            </Link>
+          )}
         </div>
       ) : (
         days.map((d) => (
@@ -88,7 +128,7 @@ export function MatchPicker({ matches, leagues }: { matches: PickerMatch[]; leag
             <ul className="divide-y divide-line overflow-hidden rounded-2xl border border-line bg-surface">
               {d.list.map((m) => (
                 <li key={m.id}>
-                  <Link href={`/new?fixture=${m.id}`} className="flex items-center gap-3 px-4 py-3 transition hover:bg-accent-soft/60">
+                  <MatchRow match={m} onPick={onPick}>
                     <span className="w-12 shrink-0 font-mono text-sm text-ink-2">{m.time}</span>
                     <span className="min-w-0 flex-1 space-y-1">
                       <span className="flex items-center gap-2 text-sm font-medium">
@@ -108,10 +148,16 @@ export function MatchPicker({ matches, leagues }: { matches: PickerMatch[]; leag
                         </span>
                       )}
                     </span>
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} className="h-4 w-4 shrink-0 text-faint" aria-hidden>
-                      <path d="m9 6 6 6-6 6" strokeLinecap="round" strokeLinejoin="round" />
-                    </svg>
-                  </Link>
+                    {onPick ? (
+                      <span aria-hidden className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-accent text-sm font-bold text-white">
+                        +
+                      </span>
+                    ) : (
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} className="h-4 w-4 shrink-0 text-faint" aria-hidden>
+                        <path d="m9 6 6 6-6 6" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
+                    )}
+                  </MatchRow>
                 </li>
               ))}
             </ul>

@@ -6,7 +6,10 @@ import { getMainGroup } from "@/lib/group";
 import { getBaseUrl } from "@/lib/url";
 import { getTails, type TailUser } from "@/lib/tails";
 import { inviteMessage, openTipsDigest } from "@/lib/shareText";
-import { TIP_SELECT, toTipView, type TipRow } from "@/lib/types";
+import { legsMissing, TIP_SELECT, TIP_SELECT_BASIC, toTipView, type TipRow } from "@/lib/types";
+import { sortBookmakers } from "@/lib/bookmakerLogo";
+import type { BookmakerOption } from "@/components/BetFields";
+import { BookmakerFilter } from "@/components/BookmakerFilter";
 import { GroupHeader, NotInGroup } from "@/components/GroupHeader";
 import { SegmentedLinks } from "@/components/Segmented";
 import { Avatar } from "@/components/Avatar";
@@ -50,7 +53,7 @@ function Landing() {
 export default async function Home({
   searchParams,
 }: {
-  searchParams: Promise<{ view?: string; error?: string; notice?: string; fixture?: string }>;
+  searchParams: Promise<{ view?: string; error?: string; notice?: string; fixture?: string; bm?: string }>;
 }) {
   const { supabase, user } = await getAuth();
   if (!user) return <Landing />;
@@ -63,20 +66,34 @@ export default async function Home({
   const id = group.id;
 
   const fixtureId = /^\d+$/.test(sp.fixture ?? "") ? Number(sp.fixture) : null;
+  // ?bm=2,14 → only spilforslag from these bookmakers
+  const bmIds = [...new Set((sp.bm ?? "").split(",").filter((x) => /^\d+$/.test(x)).map(Number))];
 
-  let tipsQuery = supabase.from("tips").select(TIP_SELECT).eq("group_id", id).limit(100);
-  if (fixtureId) tipsQuery = tipsQuery.eq("fixture_id", fixtureId);
-  if (view === "upcoming") tipsQuery = tipsQuery.eq("status", "pending").order("kickoff_at", { ascending: true });
-  else if (view === "settled") tipsQuery = tipsQuery.neq("status", "pending").order("kickoff_at", { ascending: false });
-  else tipsQuery = tipsQuery.order("kickoff_at", { ascending: false });
+  const tipsQuery = (select: string) => {
+    let q = supabase.from("tips").select(select).eq("group_id", id).limit(100);
+    if (fixtureId) q = q.eq("fixture_id", fixtureId);
+    if (bmIds.length) q = q.in("bookmaker_id", bmIds);
+    if (view === "upcoming") q = q.eq("status", "pending").order("kickoff_at", { ascending: true });
+    else if (view === "settled") q = q.neq("status", "pending").order("kickoff_at", { ascending: false });
+    else q = q.order("kickoff_at", { ascending: false });
+    return q;
+  };
 
-  const [{ data: tipRows }, { data: memberRows }, { count: totalTips }] = await Promise.all([
-    tipsQuery,
+  const [firstTips, { data: memberRows }, { data: tipBookmakers }, { data: bookmakers }] = await Promise.all([
+    tipsQuery(TIP_SELECT),
     supabase.from("group_members").select("user_id, role, profile:profiles(username, avatar_url)").eq("group_id", id).order("joined_at"),
-    supabase.from("tips").select("id", { count: "exact", head: true }).eq("group_id", id),
+    supabase.from("tips").select("bookmaker_id, author_id").eq("group_id", id),
+    supabase.from("bookmakers").select("id, name, url").order("id"),
   ]);
+  // Before migration 0012 there's no tip_legs table – load the feed without combo matches.
+  const { data: tipRows } = legsMissing(firstTips.error) ? await tipsQuery(TIP_SELECT_BASIC) : firstTips;
 
   const tips = ((tipRows ?? []) as unknown as TipRow[]).map(toTipView);
+  const allTips = (tipBookmakers ?? []) as { bookmaker_id: number; author_id: string }[];
+  const totalTips = allTips.length;
+  // Filter chips: only bookmakers the group has actually used (plus any already selected)
+  const usedBm = new Set([...allTips.map((t) => t.bookmaker_id), ...bmIds]);
+  const filterBookmakers = sortBookmakers(((bookmakers ?? []) as BookmakerOption[]).filter((b) => usedBm.has(b.id)));
   const members = (memberRows ?? []) as unknown as Member[];
   const isAdmin = members.some((m) => m.user_id === user.id && m.role === "admin");
 
@@ -89,22 +106,22 @@ export default async function Home({
   //  · 🤝 who's on which tip
   //  · (admin) tip count per member for the "Remove" dialog
   //  · (admin) the invite code – the database hides it from everyone else
-  const [tails, authorsRes, inviteRes, baseUrl] = await Promise.all([
+  const [tails, inviteRes, baseUrl] = await Promise.all([
     getTails(supabase, tips.map((t) => t.id)),
-    isAdmin ? supabase.from("tips").select("author_id").eq("group_id", id) : null,
     isAdmin ? supabase.rpc("get_invite_code", { p_group: id }) : null,
     getBaseUrl(),
   ]);
 
   const tipCounts = new Map<string, number>();
-  ((authorsRes?.data ?? []) as { author_id: string }[]).forEach((r) => tipCounts.set(r.author_id, (tipCounts.get(r.author_id) ?? 0) + 1));
+  allTips.forEach((r) => tipCounts.set(r.author_id, (tipCounts.get(r.author_id) ?? 0) + 1));
 
   const tipUrl = (slug: string) => `${baseUrl}/t/${slug}`;
   const inviteCode = inviteRes && !inviteRes.error ? (inviteRes.data as string | null) : null;
   const inviteUrl = inviteCode ? `${baseUrl}/join/${inviteCode}` : null;
   const qrSvg = inviteUrl ? await QRCode.toString(inviteUrl, { type: "svg", margin: 1 }) : undefined;
   const now = Date.now();
-  const back = `/?view=${view}`;
+  const bmParam = bmIds.length ? `&bm=${bmIds.join(",")}` : "";
+  const back = `/?view=${view}${bmParam}`;
 
   const needsFriends = isAdmin && inviteUrl !== null && members.length < 2;
   const needsTips = (totalTips ?? 0) === 0;
@@ -168,9 +185,9 @@ export default async function Home({
           active={view}
           className="sm:w-80"
           items={[
-            { key: "upcoming", href: "/?view=upcoming", label: "Upcoming" },
-            { key: "settled", href: "/?view=settled", label: "Settled" },
-            { key: "all", href: "/?view=all", label: "All" },
+            { key: "upcoming", href: `/?view=upcoming${bmParam}`, label: "Upcoming" },
+            { key: "settled", href: `/?view=settled${bmParam}`, label: "Settled" },
+            { key: "all", href: `/?view=all${bmParam}`, label: "All" },
           ]}
         />
         {view === "upcoming" && tips.length > 1 && (
@@ -185,10 +202,18 @@ export default async function Home({
         )}
       </div>
 
+      {filterBookmakers.length > 1 && <BookmakerFilter bookmakers={filterBookmakers} selected={bmIds} view={view} />}
+
       {tips.length === 0 ? (
         <Card className="space-y-3 p-8 text-center text-muted">
-          <p>{view === "upcoming" ? "No open spilforslag right now – find a match in the Kampprogram." : "Nothing here yet."}</p>
-          {view === "upcoming" && (
+          <p>
+            {bmIds.length
+              ? "Ingen spilforslag fra de valgte sites her."
+              : view === "upcoming"
+                ? "No open spilforslag right now – find a match in the Kampprogram."
+                : "Nothing here yet."}
+          </p>
+          {view === "upcoming" && !bmIds.length && (
             <Link href="/kampprogram" className={btnPrimary}>
               Open Kampprogram
             </Link>
@@ -204,6 +229,7 @@ export default async function Home({
               <li key={t.id}>
                 <TipCard
                   tip={t}
+                  showReasoning="clamp"
                   shareUrl={tipUrl(t.share_slug)}
                   social={
                     <TailButton

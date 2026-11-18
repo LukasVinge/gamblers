@@ -7,8 +7,9 @@ import { createClient, getAuth, getMyProfile } from "@/lib/supabase/server";
 import { fmtKickoff, fmtOdds } from "@/lib/format";
 import { pushConfigured, sendPush, type PushTarget } from "@/lib/push";
 import { getBaseUrl } from "@/lib/url";
-import { competitionName, getMatch, isCrestUrl, teamName } from "@/lib/footballData";
+import { competitionName, getMatch, getUpcomingMatches, isCrestUrl, teamName } from "@/lib/footballData";
 import { TIP_STATUSES, type TipStatus } from "@/lib/types";
+import { isPromo, type Promo } from "@/lib/promos";
 
 // ───────── small helpers (not exported) ─────────
 
@@ -152,10 +153,10 @@ export async function createTip(fd: FormData) {
   if (!home || !away) fail("Fill in both teams / players.");
   if (!kickoff || Number.isNaN(Date.parse(kickoff))) fail("Pick a kickoff time.");
   if (Date.parse(kickoff) <= Date.now()) fail("Kickoff must be in the future – no posting tips after the game has started.");
-  const { selection, odds, boosted, stake, bookmakerId, reasoning } = readBet(fd, fail);
+  const { selection, odds, boosted, stake, bookmakerId, reasoning, promo, promoChosen } = readBet(fd, fail);
 
   const supabase = await createClient();
-  const { data, error } = await supabase
+  const insertTip = (withPromo: boolean) => supabase
     .from("tips")
     .insert({
       group_id: groupId,
@@ -171,34 +172,161 @@ export async function createTip(fd: FormData) {
       bookmaker_id: bookmakerId,
       stake_units: stake,
       reasoning,
+      ...(withPromo && promo ? { promo } : {}),
     })
     .select("id, share_slug")
     .single();
 
-  if (error) fail(error.message);
+  let { data, error } = await insertTip(true);
+  // Database without migration 0011: still post the tip when the offer was only derived from boosted odds.
+  if (error && promoMissing(error) && !promoChosen) ({ data, error } = await insertTip(false));
+  if (error || !data) fail(error && promoMissing(error) ? PROMO_MIGRATION_MSG : (error?.message ?? "Couldn't save the tip."));
 
-  // 🔔 Tell the other members. The devices are fetched now; the sending happens after the response,
-  // so posting a tip isn't slowed down. A notification failure never blocks the tip.
-  if (pushConfigured()) {
+  await notifyNewTip(supabase, data, (me) => ({
+    title: `@${me}: ${selection} @ ${fmtOdds(boosted ?? odds)}`,
+    body: `${home} vs ${away} · ${fmtKickoff(kickoff)}`,
+  }));
+
+  revalidatePath("/");
+  redirect(`/t/${data.share_slug}?posted=1`);
+}
+
+/**
+ * 🔔 Tell the other members about a new tip. The devices are fetched now; the sending happens after
+ * the response, so posting isn't slowed down. A notification failure never blocks the tip.
+ */
+async function notifyNewTip(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  tip: { id: string; share_slug: string },
+  text: (username: string) => { title: string; body: string },
+) {
+  if (!pushConfigured()) return;
+  try {
+    const [{ data: targets }, me] = await Promise.all([supabase.rpc("get_push_targets", { p_tip: tip.id }), getMyProfile()]);
+    const list = (targets ?? []) as PushTarget[];
+    if (list.length === 0) return;
+    const payload = { ...text(me?.username ?? "Someone"), url: `/t/${tip.share_slug}`, tag: `tip-${tip.id}` };
+    after(async () => {
+      const dead = await sendPush(list, payload);
+      if (dead.length > 0) await supabase.rpc("remove_push_subscriptions", { p_endpoints: dead });
+    });
+  } catch (e) {
+    console.error("push notification setup failed", e);
+  }
+}
+
+type LegInput = {
+  fixture_id: number | null;
+  sport: string;
+  league: string | null;
+  home_team: string;
+  away_team: string;
+  home_logo: string | null;
+  away_logo: string | null;
+  kickoff_at: string;
+  selection: string;
+  odds: number | null;
+};
+
+/** Post a combo (kombi): 2–20 matches on one slip, one stake and one total odds. */
+export async function createComboTip(fd: FormData) {
+  const groupId = str(fd, "groupId");
+  function fail(message: string): never {
+    redirect(withParam("/new?combo=1", "error", message));
+  }
+
+  let raw: unknown;
+  try {
+    raw = JSON.parse(str(fd, "legs") || "[]");
+  } catch {
+    fail("The matches on the slip couldn't be read – try again.");
+  }
+  if (!Array.isArray(raw) || raw.length < 2) fail("Tilføj mindst 2 kampe til kombien.");
+  if (raw.length > 20) fail("En kombi kan højst have 20 kampe.");
+
+  // Matches from the Kampprogram: take teams, kickoff and logos from the API, not from the browser.
+  const fixtureIds = raw.map((l) => Number(l?.fixture_id)).filter((n) => Number.isInteger(n) && n > 0);
+  const fixtures = new Map<number, Awaited<ReturnType<typeof getUpcomingMatches>>[number]>();
+  if (fixtureIds.length) {
     try {
-      const [{ data: targets }, me] = await Promise.all([supabase.rpc("get_push_targets", { p_tip: data.id }), getMyProfile()]);
-      const list = (targets ?? []) as PushTarget[];
-      if (list.length > 0) {
-        const payload = {
-          title: `@${me?.username ?? "Someone"}: ${selection} @ ${fmtOdds(boosted ?? odds)}`,
-          body: `${home} vs ${away} · ${fmtKickoff(kickoff)}`,
-          url: `/t/${data.share_slug}`,
-          tag: `tip-${data.id}`,
-        };
-        after(async () => {
-          const dead = await sendPush(list, payload);
-          if (dead.length > 0) await supabase.rpc("remove_push_subscriptions", { p_endpoints: dead });
-        });
-      }
-    } catch (e) {
-      console.error("push notification setup failed", e);
+      for (const m of await getUpcomingMatches(10)) fixtures.set(m.id, m);
+    } catch {
+      // API down → use what the browser sent (still checked below)
     }
   }
+
+  const text = (v: unknown, max: number) => (typeof v === "string" ? v.trim().slice(0, max) : "");
+  const legs: LegInput[] = raw.map((l: Record<string, unknown>, i: number) => {
+    const n = i + 1;
+    const m = fixtures.get(Number(l.fixture_id));
+    const selection = text(l.selection, 200);
+    const odds = l.odds == null || l.odds === "" ? null : Number(l.odds);
+    if (selection.length < 2) fail(`Kamp ${n}: skriv hvad du spiller på.`);
+    if (odds !== null && !(odds > 1)) fail(`Kamp ${n}: odds skal være over 1.00.`);
+    if (m) {
+      return {
+        fixture_id: m.id,
+        sport: "Football",
+        league: competitionName(m.competition.code, m.competition.name),
+        home_team: teamName(m.homeTeam),
+        away_team: teamName(m.awayTeam),
+        home_logo: m.homeTeam.crest && isCrestUrl(m.homeTeam.crest) ? m.homeTeam.crest : null,
+        away_logo: m.awayTeam.crest && isCrestUrl(m.awayTeam.crest) ? m.awayTeam.crest : null,
+        kickoff_at: m.utcDate,
+        selection,
+        odds,
+      };
+    }
+    const home = text(l.home_team, 80);
+    const away = text(l.away_team, 80);
+    const kickoff = text(l.kickoff_at, 40);
+    if (!home || !away) fail(`Kamp ${n}: udfyld begge hold.`);
+    if (!kickoff || Number.isNaN(Date.parse(kickoff))) fail(`Kamp ${n} (${home} – ${away}): vælg dato og tidspunkt.`);
+    return {
+      fixture_id: null,
+      sport: text(l.sport, 40) || "Football",
+      league: text(l.league, 80) || null,
+      home_team: home,
+      away_team: away,
+      home_logo: null,
+      away_logo: null,
+      kickoff_at: new Date(kickoff).toISOString(),
+      selection,
+      odds,
+    };
+  });
+  const started = legs.find((l) => Date.parse(l.kickoff_at) <= Date.now());
+  if (started) fail(`${started.home_team} – ${started.away_team} er allerede startet – fjern den fra kuponen.`);
+
+  fd.set("selection", "kombi"); // the per-match picks are checked above; readBet checks the rest
+  const { odds, boosted, stake, bookmakerId, reasoning, promo } = readBet(fd, fail);
+
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .rpc("create_combo_tip", {
+      p_group: groupId,
+      p_legs: legs,
+      p_odds: odds,
+      p_boosted_odds: boosted,
+      p_bookmaker_id: bookmakerId,
+      p_stake_units: stake,
+      p_reasoning: reasoning,
+      p_promo: promo ?? "",
+    })
+    .single<{ id: string; share_slug: string }>();
+  if (error || !data) {
+    fail(
+      error?.code === "PGRST202"
+        ? "Kombi er ikke sat op i databasen endnu – kør migration 0012_combos_and_bookmakers.sql i Supabase."
+        : (error?.message ?? "Couldn't save the combo."),
+    );
+  }
+
+  const first = [...legs].sort((a, b) => Date.parse(a.kickoff_at) - Date.parse(b.kickoff_at))[0];
+  await notifyNewTip(supabase, data, (me) => ({
+    title: `@${me}: 🧩 Kombi (${legs.length}) @ ${fmtOdds(boosted ?? odds)}`,
+    body: `${legs.map((l) => `${l.home_team}–${l.away_team}: ${l.selection}`).join(" · ").slice(0, 160)} · første kamp ${fmtKickoff(first.kickoff_at)}`,
+  }));
 
   revalidatePath("/");
   redirect(`/t/${data.share_slug}?posted=1`);
@@ -244,6 +372,11 @@ function readBet(fd: FormData, fail: (message: string) => never) {
   if (stake === null || !(stake > 0 && stake <= 10)) fail("Stake must be between 0.5 and 10 units.");
   if (!bookmakerId) fail("Pick the bookmaker the odds are from.");
 
+  const promoRaw = str(fd, "promo");
+  if (promoRaw && !isPromo(promoRaw)) fail("Unknown offer type.");
+  // Boosted odds without a marked offer count as a plain "Odds boost" in the statistics.
+  const promo: Promo | null = isPromo(promoRaw) ? promoRaw : boosted !== null ? "odds_boost" : null;
+
   return {
     selection,
     odds: odds!,
@@ -251,7 +384,17 @@ function readBet(fd: FormData, fail: (message: string) => never) {
     stake: Math.round(stake! * 10) / 10,
     bookmakerId,
     reasoning: str(fd, "reasoning") || null,
+    promo,
+    /** false when the promo was only derived from boosted odds (then it may be dropped on an old database) */
+    promoChosen: isPromo(promoRaw),
   };
+}
+
+const PROMO_MIGRATION_MSG = "Tilbud er ikke sat op i databasen endnu – kør migration 0011_promos.sql i Supabase.";
+
+/** True when the database doesn't know the promo column / new edit_tip yet (migration 0011 not run). */
+function promoMissing(error: { code?: string; message?: string }) {
+  return error.code === "PGRST204" || error.code === "PGRST202" || /promo/.test(error.message ?? "");
 }
 
 /** Edit your own bet – only until kickoff (enforced in the database by edit_tip). */
@@ -264,10 +407,10 @@ export async function updateTip(fd: FormData) {
     redirect(withParam(back, "error", message));
   }
 
-  const { selection, odds, boosted, stake, bookmakerId, reasoning } = readBet(fd, fail);
+  const { selection, odds, boosted, stake, bookmakerId, reasoning, promo, promoChosen } = readBet(fd, fail);
 
   const supabase = await createClient();
-  const { error } = await supabase.rpc("edit_tip", {
+  const args = {
     p_tip: tipId,
     p_selection: selection,
     p_odds: odds,
@@ -275,8 +418,11 @@ export async function updateTip(fd: FormData) {
     p_bookmaker_id: bookmakerId,
     p_stake_units: stake,
     p_reasoning: reasoning,
-  });
-  if (error) fail(error.message);
+  };
+  let { error } = await supabase.rpc("edit_tip", { ...args, p_promo: promo ?? "" });
+  // Before migration 0011 only the old edit_tip exists – still save the edit when no offer was chosen.
+  if (error?.code === "PGRST202" && !promoChosen) ({ error } = await supabase.rpc("edit_tip", args));
+  if (error) fail(promoMissing(error) ? PROMO_MIGRATION_MSG : error.message);
 
   revalidatePath("/");
   revalidatePath(`/t/${slug}`);

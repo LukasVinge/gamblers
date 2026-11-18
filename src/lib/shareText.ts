@@ -1,6 +1,7 @@
 // Ready-to-paste messages for group chats. The link is appended by the share sheet.
 import { effectiveOdds, fmtKickoff, fmtOdds, fmtStake, fmtUnits, tipProfit } from "./format";
-import type { LeaderboardRow, TipView } from "./types";
+import { isCombo, type LeaderboardRow, type TipView } from "./types";
+import { promoInfo } from "./promos";
 
 const SPORT_EMOJI: Record<string, string> = {
   Football: "⚽",
@@ -17,7 +18,11 @@ export function sportEmoji(sport: string) {
 }
 
 function oddsText(t: TipView) {
-  return t.boosted_odds ? `${fmtOdds(effectiveOdds(t))} 🚀 (boosted from ${fmtOdds(t.odds)})` : fmtOdds(t.odds);
+  const p = promoInfo(t.promo);
+  if (t.boosted_odds) {
+    return `${fmtOdds(effectiveOdds(t))} ${p?.emoji ?? "🚀"} (${p ? `${p.label} from` : "boosted from"} ${fmtOdds(t.odds)})`;
+  }
+  return p ? `${fmtOdds(t.odds)} ${p.emoji} ${p.label}` : fmtOdds(t.odds);
 }
 
 function resultLine(t: TipView) {
@@ -42,6 +47,16 @@ function resultLine(t: TipView) {
  *  🏦 Danske Spil · Stake 2/10 · @bob
  */
 export function tipMessage(t: TipView) {
+  if (isCombo(t)) {
+    return [
+      resultLine(t),
+      `🧩 Kombi (${t.legs!.length} kampe) @ ${oddsText(t)}`,
+      ...t.legs!.map((l) => `${l.position}. ${l.selection}${l.odds ? ` (${fmtOdds(l.odds)})` : ""} – ${l.home_team} vs ${l.away_team}, ${fmtKickoff(l.kickoff_at)}`),
+      `🏦 ${t.bookmaker_name} · Stake ${fmtStake(t.stake_units)} · @${t.author_username}`,
+    ]
+      .filter(Boolean)
+      .join("\n");
+  }
   const lines = [
     resultLine(t),
     `🎯 ${t.selection} @ ${oddsText(t)}`,
@@ -54,11 +69,14 @@ export function tipMessage(t: TipView) {
 /** All open tips in one message (links included per tip). */
 export function openTipsDigest(groupName: string, tips: TipView[], tipUrl: (t: TipView) => string) {
   const body = tips
-    .map(
-      (t, i) =>
-        `${i + 1}. ${sportEmoji(t.sport)} ${t.home_team} vs ${t.away_team} (${fmtKickoff(t.kickoff_at)})\n` +
-        `   ${t.selection} @ ${oddsText(t)} · ${t.bookmaker_name} · ${fmtStake(t.stake_units)} · @${t.author_username}\n` +
-        `   ${tipUrl(t)}`,
+    .map((t, i) =>
+      isCombo(t)
+        ? `${i + 1}. 🧩 Kombi (${t.legs!.length} kampe, første ${fmtKickoff(t.kickoff_at)})\n` +
+          `   ${t.legs!.map((l) => l.selection).join(" + ")} @ ${oddsText(t)} · ${t.bookmaker_name} · ${fmtStake(t.stake_units)} · @${t.author_username}\n` +
+          `   ${tipUrl(t)}`
+        : `${i + 1}. ${sportEmoji(t.sport)} ${t.home_team} vs ${t.away_team} (${fmtKickoff(t.kickoff_at)})\n` +
+          `   ${t.selection} @ ${oddsText(t)} · ${t.bookmaker_name} · ${fmtStake(t.stake_units)} · @${t.author_username}\n` +
+          `   ${tipUrl(t)}`,
     )
     .join("\n\n");
   return `📋 Open tips in ${groupName} (${tips.length})\n\n${body}`;

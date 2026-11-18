@@ -1,5 +1,6 @@
 import Link from "next/link";
-import { createTip } from "../actions";
+import { createComboTip, createTip } from "../actions";
+import { ComboBuilder } from "@/components/ComboBuilder";
 import { createClient } from "@/lib/supabase/server";
 import { getMainGroup } from "@/lib/group";
 import { fmtKickoff } from "@/lib/format";
@@ -60,12 +61,51 @@ const toPickerTeam = (t: Team): PickerTeam => ({
   crest: t.crest,
 });
 
+/** The next 10 days' matches for the picker, with how many spilforslag each already has. */
+async function loadPicker(supabase: Awaited<ReturnType<typeof createClient>>, groupId: string): Promise<PickerMatch[]> {
+  const now = Date.now();
+  const upcoming = (await getUpcomingMatches(10)).filter(
+    (m) => (m.status === "SCHEDULED" || m.status === "TIMED") && Date.parse(m.utcDate) > now,
+  );
+  const counts = new Map<number, number>();
+  if (upcoming.length) {
+    const { data } = await supabase
+      .from("tips")
+      .select("fixture_id")
+      .eq("group_id", groupId)
+      .in(
+        "fixture_id",
+        upcoming.map((m) => m.id),
+      );
+    (data ?? []).forEach((r: { fixture_id: number | null }) => {
+      if (r.fixture_id) counts.set(r.fixture_id, (counts.get(r.fixture_id) ?? 0) + 1);
+    });
+  }
+  return upcoming.map((m) => {
+    const day = dayKey(m.utcDate);
+    return {
+      id: m.id,
+      day,
+      dayLabel: dayLabel(day),
+      time: timeOf(m.utcDate),
+      kickoffIso: m.utcDate,
+      leagueCode: m.competition.code,
+      league: competitionName(m.competition.code, m.competition.name),
+      home: toPickerTeam(m.homeTeam),
+      away: toPickerTeam(m.awayTeam),
+      tips: counts.get(m.id) ?? 0,
+    };
+  });
+}
+
+const LEAGUES = COMPETITIONS.map((c) => ({ code: c.code, name: c.name }));
+
 export default async function NewTipPage({
   searchParams,
 }: {
-  searchParams: Promise<{ error?: string; fixture?: string; manual?: string; scanned?: string }>;
+  searchParams: Promise<{ error?: string; fixture?: string; manual?: string; scanned?: string; combo?: string }>;
 }) {
-  const { error, fixture, manual, scanned } = await searchParams;
+  const { error, fixture, manual, scanned, combo } = await searchParams;
   const supabase = await createClient();
 
   const [group, { data: bookmakers }] = await Promise.all([
@@ -75,6 +115,40 @@ export default async function NewTipPage({
   if (!group) return <NotInGroup />;
 
   const apiReady = hasApiKey();
+
+  // ───────── Combo (kombi): several matches on one slip ─────────
+  if (combo === "1") {
+    let picker: PickerMatch[] = [];
+    let loadProblem: string | undefined;
+    if (apiReady) {
+      try {
+        picker = await loadPicker(supabase, group.id);
+      } catch {
+        loadProblem = "Couldn't load this week's matches right now – you can still type the matches in yourself.";
+      }
+    }
+    return (
+      <div className="space-y-6">
+        <div className="space-y-1">
+          <Link href="/new" className="text-sm text-muted hover:text-ink">
+            ← Nyt spilforslag
+          </Link>
+          <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">🧩 Ny kombi</h1>
+          <p className="text-sm text-muted">Flere kampe på én kupon – én indsats, samlet odds. Låses når første kamp starter.</p>
+        </div>
+        <Notice error={error ?? loadProblem} />
+        <Card className="p-5">
+          <form action={createComboTip} className="space-y-5">
+            <ScannedFormHydrator active={scanned === "1"} />
+            <input type="hidden" name="groupId" value={group.id} />
+            <ComboBuilder matches={picker} leagues={LEAGUES} />
+            <BetFields bookmakers={bookmakers ?? []} oddsHint="Samlet odds" />
+            <button className={`${btnPrimary} w-full sm:w-auto`}>Post kombi</button>
+          </form>
+        </Card>
+      </div>
+    );
+  }
 
   // Step 2 with a chosen match: load it so everything is pre-filled.
   let match: Match | null = null;
@@ -98,38 +172,7 @@ export default async function NewTipPage({
     let picker: PickerMatch[] = [];
     let loadProblem: string | undefined;
     try {
-      const now = Date.now();
-      const upcoming = (await getUpcomingMatches(10)).filter(
-        (m) => (m.status === "SCHEDULED" || m.status === "TIMED") && Date.parse(m.utcDate) > now
-      );
-      const counts = new Map<number, number>();
-      if (upcoming.length) {
-        const { data } = await supabase
-          .from("tips")
-          .select("fixture_id")
-          .eq("group_id", group.id)
-          .in(
-            "fixture_id",
-            upcoming.map((m) => m.id)
-          );
-        (data ?? []).forEach((r: { fixture_id: number | null }) => {
-          if (r.fixture_id) counts.set(r.fixture_id, (counts.get(r.fixture_id) ?? 0) + 1);
-        });
-      }
-      picker = upcoming.map((m) => {
-        const day = dayKey(m.utcDate);
-        return {
-          id: m.id,
-          day,
-          dayLabel: dayLabel(day),
-          time: timeOf(m.utcDate),
-          leagueCode: m.competition.code,
-          league: competitionName(m.competition.code, m.competition.name),
-          home: toPickerTeam(m.homeTeam),
-          away: toPickerTeam(m.awayTeam),
-          tips: counts.get(m.id) ?? 0,
-        };
-      });
+      picker = await loadPicker(supabase, group.id);
     } catch {
       loadProblem =
         "Couldn't load this week's matches right now – you can still enter a match manually.";
@@ -163,14 +206,24 @@ export default async function NewTipPage({
           </span>
         </Link>
 
+        <Link
+          href="/new?combo=1"
+          className="flex items-center justify-between gap-3 rounded-2xl border border-dashed border-line-strong bg-surface px-4 py-3 transition hover:border-accent hover:bg-accent-soft/40"
+        >
+          <span>
+            <span className="block font-semibold">🧩 Kombi – flere kampe på én kupon</span>
+            <span className="block text-sm text-muted">Saml 2–20 kampe med én indsats og samlet odds</span>
+          </span>
+          <span className="shrink-0 text-lg font-semibold text-accent" aria-hidden>
+            →
+          </span>
+        </Link>
+
         <div className="space-y-2">
           <h2 className="text-sm font-semibold text-ink-2">
             …or pick a match from the top 5 leagues or the Champions League
           </h2>
-          <MatchPicker
-            matches={picker}
-            leagues={COMPETITIONS.map((c) => ({ code: c.code, name: c.name }))}
-          />
+          <MatchPicker matches={picker} leagues={LEAGUES} />
         </div>
       </div>
     );

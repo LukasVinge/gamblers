@@ -64,6 +64,7 @@ export function fmtKickoff(iso: string) {
     month: "short",
     hour: "2-digit",
     minute: "2-digit",
+    hourCycle: "h23", // always 24-hour (17:35), whatever the phone's own setting
     timeZone: "Europe/Copenhagen",
   }).format(new Date(iso));
 }

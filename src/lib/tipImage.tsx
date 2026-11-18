@@ -2,6 +2,7 @@ import { ImageResponse } from "next/og";
 import { fmtKickoff, fmtOdds, fmtStake, STATUS_LABEL } from "@/lib/format";
 import type { SharedTip } from "@/lib/sharedTip";
 import { bookmakerLogo } from "@/lib/bookmakerLogo";
+import { promoBadge } from "@/lib/promos";
 
 // The preview image for a shared tip (Messenger, WhatsApp, Discord, …). 1200×630.
 
@@ -74,9 +75,13 @@ export function renderNotFoundImage() {
   );
 }
 
-export function renderTipImage(tip: SharedTip) {
+export function renderTipImage(tip: SharedTip, baseUrl?: string) {
   const st = STATUS_STYLE[tip.status];
-  const pick = fitPick(tip.selection);
+  const legs = tip.legs ?? [];
+  const isCombo = legs.length > 1;
+  const pick = fitPick(isCombo ? legs.map((l) => l.selection).join(" + ") : tip.selection);
+  const badge = promoBadge(tip);
+  const logo = bookmakerLogo(tip.bookmaker_url, 128, baseUrl);
 
   return new ImageResponse(
     (
@@ -89,17 +94,30 @@ export function renderTipImage(tip: SharedTip) {
             </span>
           </div>
 
-          <div style={{ display: "flex", alignItems: "center", gap: 16, marginTop: 28, fontSize: 32, color: C.muted }}>
-            <Crest src={tip.home_logo} />
-            <span style={{ color: C.ink, fontWeight: 600 }}>{shorten(tip.home_team, 26)}</span>
-            <span>vs</span>
-            <Crest src={tip.away_logo} />
-            <span style={{ color: C.ink, fontWeight: 600 }}>{shorten(tip.away_team, 26)}</span>
-          </div>
-          <div style={{ display: "flex", fontSize: 26, color: C.muted, marginTop: 6 }}>
-            {tip.league ? `${shorten(tip.league, 40)} · ` : ""}
-            {fmtKickoff(tip.kickoff_at)}
-          </div>
+          {isCombo ? (
+            <>
+              <div style={{ display: "flex", alignItems: "center", gap: 16, marginTop: 28, fontSize: 32, color: C.ink, fontWeight: 600 }}>
+                {`Kombi · ${legs.length} kampe`}
+              </div>
+              <div style={{ display: "flex", fontSize: 26, color: C.muted, marginTop: 6 }}>
+                {shorten(legs.map((l) => `${l.home_team}–${l.away_team}`).join(", "), 70)}
+              </div>
+            </>
+          ) : (
+            <>
+              <div style={{ display: "flex", alignItems: "center", gap: 16, marginTop: 28, fontSize: 32, color: C.muted }}>
+                <Crest src={tip.home_logo} />
+                <span style={{ color: C.ink, fontWeight: 600 }}>{shorten(tip.home_team, 26)}</span>
+                <span>vs</span>
+                <Crest src={tip.away_logo} />
+                <span style={{ color: C.ink, fontWeight: 600 }}>{shorten(tip.away_team, 26)}</span>
+              </div>
+              <div style={{ display: "flex", fontSize: 26, color: C.muted, marginTop: 6 }}>
+                {tip.league ? `${shorten(tip.league, 40)} · ` : ""}
+                {fmtKickoff(tip.kickoff_at)}
+              </div>
+            </>
+          )}
 
           {/* The pick: sized to fit, and clipped as a last resort so it never covers the bottom row */}
           <div
@@ -119,18 +137,23 @@ export function renderTipImage(tip: SharedTip) {
           </div>
 
           <div style={{ display: "flex", marginTop: "auto", alignItems: "flex-end", gap: 56 }}>
-            <div style={{ display: "flex", alignItems: "baseline", gap: 14 }}>
-              {tip.boosted_odds ? (
-                <span style={{ fontSize: 36, color: C.muted, textDecoration: "line-through" }}>{fmtOdds(tip.odds)}</span>
+            <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 8 }}>
+              {badge ? (
+                <span style={{ fontSize: 22, fontWeight: 800, color: "#7c3aed", background: "#f1eafe", borderRadius: 8, padding: "4px 10px" }}>{badge}</span>
               ) : null}
-              <span style={{ fontSize: 96, fontWeight: 800, color: C.accent, letterSpacing: -2, lineHeight: 1 }}>{fmtOdds(tip.boosted_odds ?? tip.odds)}</span>
+              <div style={{ display: "flex", alignItems: "baseline", gap: 14 }}>
+                {tip.boosted_odds ? (
+                  <span style={{ fontSize: 36, color: C.muted, textDecoration: "line-through" }}>{fmtOdds(tip.odds)}</span>
+                ) : null}
+                <span style={{ fontSize: 96, fontWeight: 800, color: C.accent, letterSpacing: -2, lineHeight: 1 }}>{fmtOdds(tip.boosted_odds ?? tip.odds)}</span>
+              </div>
             </div>
             <div style={{ display: "flex", flexDirection: "column", paddingBottom: 6 }}>
               <span style={{ fontSize: 22, color: C.muted }}>Bookmaker</span>
               <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                {bookmakerLogo(tip.bookmaker_url, 128) ? (
+                {logo ? (
                   // eslint-disable-next-line @next/next/no-img-element
-                  <img src={bookmakerLogo(tip.bookmaker_url, 128)!} width={36} height={36} style={{ borderRadius: 8 }} alt="" />
+                  <img src={logo} width={36} height={36} style={{ borderRadius: 8 }} alt="" />
                 ) : null}
                 <span style={{ fontSize: 34, fontWeight: 700 }}>{tip.bookmaker_name}</span>
               </div>

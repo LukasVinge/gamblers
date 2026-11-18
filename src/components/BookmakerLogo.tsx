@@ -1,9 +1,13 @@
+"use client";
+
+import { useState } from "react";
 import { bookmakerLogo } from "@/lib/bookmakerLogo";
 
-/** The bookmaker's icon, or a neutral rounded square with initials (e.g. for "Other"). */
+/** The bookmaker's icon, or a neutral rounded square with its first letter (no logo, or the image failed). */
 export function BookmakerLogo({ name, url, size = 20 }: { name: string; url?: string | null; size?: number }) {
+  const [failed, setFailed] = useState(false);
   // Always the large icon: for some sites Google's smaller sizes are only 16 px and look blurry.
-  const src = bookmakerLogo(url, 128);
+  const src = failed ? null : bookmakerLogo(url, 128);
   const style = { width: size, height: size, borderRadius: Math.round(size * 0.22) };
   if (!src) {
     return (
@@ -18,6 +22,15 @@ export function BookmakerLogo({ name, url, size = 20 }: { name: string; url?: st
   }
   return (
     // eslint-disable-next-line @next/next/no-img-element
-    <img src={src} alt="" width={size} height={size} loading="lazy" className="shrink-0 object-contain ring-1 ring-line" style={style} />
+    <img
+      src={src}
+      alt=""
+      width={size}
+      height={size}
+      decoding="async"
+      onError={() => setFailed(true)}
+      className="shrink-0 bg-white object-contain ring-1 ring-line"
+      style={style}
+    />
   );
 }

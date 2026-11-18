@@ -1,4 +1,5 @@
 import { sortBookmakers } from "@/lib/bookmakerLogo";
+import { PROMOS } from "@/lib/promos";
 import { BookmakerLogo } from "./BookmakerLogo";
 import { Field, inputCls } from "./ui";
 
@@ -8,12 +9,21 @@ export type BetDefaults = {
   boosted_odds?: number | null;
   stake_units?: number;
   reasoning?: string | null;
+  promo?: string | null;
 };
 
 export type BookmakerOption = { id: number; name: string; url: string | null };
 
 /** Bookmaker (logo grid), odds, boosted odds, stake and reasoning – shared by "new" and "edit". */
-export function BetFields({ bookmakers, defaults = {} }: { bookmakers: BookmakerOption[]; defaults?: BetDefaults }) {
+export function BetFields({
+  bookmakers,
+  defaults = {},
+  oddsHint = "e.g. 2.10",
+}: {
+  bookmakers: BookmakerOption[];
+  defaults?: BetDefaults;
+  oddsHint?: string;
+}) {
   const fmt = (n?: number | null) => (n == null ? undefined : Number(n).toFixed(2));
   return (
     <>
@@ -41,9 +51,27 @@ export function BetFields({ bookmakers, defaults = {} }: { bookmakers: Bookmaker
         </div>
       </fieldset>
 
+      {/* Offer type – feeds the Boosts statistics on the leaderboard */}
+      <fieldset className="space-y-1.5">
+        <legend className="mb-1.5 text-xs font-medium uppercase tracking-wide text-muted">Tilbud</legend>
+        <div className="flex flex-wrap gap-2">
+          {[{ id: "", label: "Ingen", emoji: "" }, ...PROMOS].map((p) => (
+            <label
+              key={p.id || "none"}
+              className="inline-flex cursor-pointer items-center gap-1.5 rounded-full bg-surface px-3 py-1.5 text-sm font-medium text-ink-2 ring-1 ring-line transition hover:ring-line-strong has-[:checked]:bg-boost-soft has-[:checked]:text-boost has-[:checked]:ring-2 has-[:checked]:ring-boost has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-accent"
+            >
+              <input type="radio" name="promo" value={p.id} defaultChecked={(defaults.promo ?? "") === p.id} className="sr-only" />
+              {p.emoji && <span aria-hidden>{p.emoji}</span>}
+              {p.label}
+            </label>
+          ))}
+        </div>
+        <p className="text-xs text-muted">Skriv de forhøjede odds i Boost-feltet, så ROI bliver regnet rigtigt.</p>
+      </fieldset>
+
       {/* Short labels so all three stay on one line on a phone and the boxes line up */}
       <div className="grid grid-cols-3 items-start gap-3 sm:gap-4">
-        <Field label="Odds" hint="e.g. 2.10">
+        <Field label="Odds" hint={oddsHint}>
           <input name="odds" required inputMode="decimal" placeholder="2.10" defaultValue={fmt(defaults.odds)} className={`${inputCls} font-mono`} />
         </Field>
         <Field label="Boost" hint="Optional">

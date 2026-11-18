@@ -35,11 +35,43 @@ const BET_SCHEMA: Schema = {
       description:
         "Formatted pick. For 1X2 use '<Home> to win', 'Draw', or '<Away> to win'. For player bets use '<Player> to score', '<Player> 2+ shots on target', etc. Otherwise concise market like 'Over 2.5 goals' or 'Both teams to score'.",
     },
-    odds: { type: Type.NUMBER, description: "Standard decimal odds (e.g. 2.15). If only boosted odds are shown, put that here." },
-    boosted_odds: { type: Type.NUMBER, nullable: true, description: "Boosted decimal odds if an odds boost is visible, otherwise null." },
+    odds: {
+      type: Type.NUMBER,
+      description:
+        "Original decimal odds before any boost (e.g. 2.15) – on a boosted slip this is the smaller, often crossed-out number. If only one odds value is shown, put it here.",
+    },
+    boosted_odds: {
+      type: Type.NUMBER,
+      nullable: true,
+      description: "The higher boosted decimal odds when a boost shows two prices (old crossed out, new highlighted), otherwise null. Must be higher than odds.",
+    },
+    promo: {
+      type: Type.STRING,
+      nullable: true,
+      enum: ["super_boost", "odds_boost", "dobbelt_op", "other_offer"],
+      description:
+        "Special offer shown on the slip: 'super_boost' for Super Boost / Superboost / SuperOdds, 'odds_boost' for a normal odds boost / Boost / Price boost / Forhøjet odds, 'dobbelt_op' for Dobbelt op / Double up, 'other_offer' for any other promotion (e.g. money back, free bet). Null when there is no offer.",
+    },
     bookmaker: { type: Type.STRING, nullable: true, description: "Bookmaker name if visible (e.g. bet365, Unibet, Danske Spil, Betano)." },
     league: { type: Type.STRING, nullable: true, description: "League or tournament name if visible, e.g. 'Premier League'." },
     kickoff_at: { type: Type.STRING, nullable: true, description: "ISO 8601 datetime if the kickoff date/time is visible, otherwise null." },
+    legs: {
+      type: Type.ARRAY,
+      description:
+        "Only for a combo / accumulator slip with 2 or more selections on different matches: every selection in the order shown. Empty for a single bet.",
+      items: {
+        type: Type.OBJECT,
+        properties: {
+          home_team: { type: Type.STRING },
+          away_team: { type: Type.STRING },
+          selection: { type: Type.STRING, description: "Formatted pick for this match, same style as the top-level selection." },
+          odds: { type: Type.NUMBER, nullable: true, description: "This selection's own decimal odds, if shown." },
+          league: { type: Type.STRING, nullable: true },
+          kickoff_at: { type: Type.STRING, nullable: true, description: "ISO 8601 with the Copenhagen offset, if shown." },
+        },
+        required: ["home_team", "away_team", "selection"],
+      },
+    },
   },
   required: ["home_team", "away_team", "selection", "odds"],
 };
@@ -53,7 +85,10 @@ function buildPrompt() {
     "(e.g. 'Begge hold scorer' -> 'Both teams to score', 'Over 2,5 mål' -> 'Over 2.5 goals', " +
     "'Vinder kampen - Arsenal' or 'Kampresultat: Arsenal' -> 'Arsenal to win', 'Uafgjort' -> 'Draw', " +
     "'Scorer når som helst - Haaland' -> 'Haaland to score'). Use decimal odds with a dot. " +
-    "If the slip shows a date without a year, use the next upcoming such date. Give kickoff_at as ISO 8601 with the Copenhagen offset."
+    "If the slip shows a date without a year, use the next upcoming such date. Give kickoff_at as ISO 8601 with the Copenhagen offset. " +
+    "If the slip is a combo / accumulator (Kombination, Kombi, Dobbelt, Tripel, 3-fold, Accumulator – several selections on different matches), " +
+    "list every selection in legs, put the slip's TOTAL odds in odds (and boosted_odds if the total is boosted), and copy the first selection's teams, pick and kickoff into the top-level fields. " +
+    "Note: 'Dobbelt op' is an offer (promo), not a combo. For a single bet leave legs empty."
   );
 }
 

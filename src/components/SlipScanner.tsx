@@ -90,7 +90,9 @@ export function SlipScanner() {
         // Gem aflæste data kortvarigt i sessionStorage, så formularen pre-filles
         sessionStorage.setItem("rg_scanned_slip", JSON.stringify(data));
 
-        if (data.fixture_id) {
+        if (Array.isArray(data.legs) && data.legs.length >= 2) {
+          router.push("/new?combo=1&scanned=1"); // combo slip → the combo builder, pre-filled
+        } else if (data.fixture_id) {
           router.push(`/new?fixture=${data.fixture_id}&scanned=1`);
         } else {
           router.push("/new?manual=1&scanned=1");

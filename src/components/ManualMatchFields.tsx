@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { SelectionInput } from "./SelectionInput";
+import { TimeSelect } from "./TimeSelect";
 import { Field, inputCls } from "./ui";
 
 const SPORTS = ["Football", "Ice hockey", "Tennis", "Handball", "Basketball", "American football", "Esports", "Other"];
@@ -37,6 +38,18 @@ const LEAGUE_SUGGESTIONS = [
 const pad = (n: number) => String(n).padStart(2, "0");
 const localDate = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 
+/** Kickoff read by the AI scanner (left in sessionStorage by SlipScanner), if any. */
+function scannedKickoff(): Date | null {
+  try {
+    const raw = sessionStorage.getItem("rg_scanned_slip");
+    const iso = raw ? JSON.parse(raw).kickoff_at : null;
+    const d = typeof iso === "string" ? new Date(iso) : null;
+    return d && !Number.isNaN(d.getTime()) ? d : null;
+  } catch {
+    return null;
+  }
+}
+
 /** Match details typed by hand (any sport/league) + the pick builder using the typed team names. */
 export function ManualMatchFields() {
   const [home, setHome] = useState("");
@@ -44,8 +57,17 @@ export function ManualMatchFields() {
   const [date, setDate] = useState("");
   const [time, setTime] = useState("");
 
-  // Default the date to today in the user's own timezone (set after mount so server and browser agree).
-  useEffect(() => setDate((d) => d || localDate(new Date())), []);
+  // Kickoff from a scanned slip (if any), otherwise today – in the user's own timezone.
+  // Set after mount so server and browser agree.
+  useEffect(() => {
+    const scanned = scannedKickoff();
+    if (scanned) {
+      setDate(localDate(scanned));
+      setTime(`${pad(scanned.getHours())}:${pad(scanned.getMinutes())}`);
+    } else {
+      setDate((d) => d || localDate(new Date()));
+    }
+  }, []);
 
   // date + time are in the user's local time → send an exact ISO timestamp to the server.
   const kickoff = date && time ? new Date(`${date}T${time}`) : null;
@@ -80,7 +102,7 @@ export function ManualMatchFields() {
           <input type="date" name="kickoff_date" required value={date} onChange={(e) => setDate(e.target.value)} className={inputCls} />
         </Field>
         <Field label="Kickoff time" hint={inPast ? undefined : "Your local time"}>
-          <input type="time" name="kickoff_time" required value={time} onChange={(e) => setTime(e.target.value)} className={inputCls} />
+          <TimeSelect name="kickoff_time" value={time} onChange={setTime} />
           {inPast && <span className="block text-xs text-loss">That time has already passed – tips must be posted before kickoff.</span>}
         </Field>
       </div>
