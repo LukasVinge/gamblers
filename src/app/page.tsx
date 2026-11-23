@@ -17,7 +17,8 @@ import { Avatar } from "@/components/Avatar";
 import { InstallHint } from "@/components/InstallHint";
 import { NotificationToggle } from "@/components/NotificationToggle";
 import { RemoveMemberButton } from "@/components/RemoveMemberButton";
-import { TailButton } from "@/components/TailButton";
+import { TipSocial } from "@/components/TipSocial";
+import { emptyReactions, getSocial } from "@/lib/social";
 import { SettleForm } from "@/components/SettleForm";
 import { ShareSheet } from "@/components/ShareSheet";
 import { TipCard } from "@/components/TipCard";
@@ -105,10 +106,11 @@ export default async function Home({
 
   // One parallel round trip for everything else:
   //  · 🤝 who's on which tip
-  //  · (admin) tip count per member for the "Remove" dialog
+  //  · 💬 comments + reactions
   //  · (admin) the invite code – the database hides it from everyone else
-  const [tails, inviteRes, baseUrl] = await Promise.all([
+  const [tails, social, inviteRes, baseUrl] = await Promise.all([
     getTails(supabase, tips.map((t) => t.id)),
+    getSocial(supabase, tips.map((t) => t.id), user.id),
     isAdmin ? supabase.rpc("get_invite_code", { p_group: id }) : null,
     getBaseUrl(),
   ]);
@@ -244,11 +246,13 @@ export default async function Home({
                   showReasoning="clamp"
                   shareUrl={tipUrl(t.share_slug)}
                   social={
-                    <TailButton
+                    <TipSocial
                       tipId={t.id}
-                      users={tails.get(t.id) ?? []}
+                      tails={tails.get(t.id) ?? []}
                       me={me}
                       canTail={t.author_id !== user.id && t.status === "pending" && !started}
+                      social={social ? (social.get(t.id) ?? { comments: [], reactions: emptyReactions() }) : null}
+                      isAdmin={isAdmin}
                     />
                   }
                 >

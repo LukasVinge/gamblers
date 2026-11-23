@@ -10,6 +10,7 @@ import { getBaseUrl } from "@/lib/url";
 import { competitionName, getMatch, getUpcomingMatches, isCrestUrl, teamName } from "@/lib/footballData";
 import { TIP_STATUSES, type TipStatus } from "@/lib/types";
 import { isPromo, type Promo } from "@/lib/promos";
+import { isReaction, type TipComment } from "@/lib/social";
 
 // ───────── small helpers (not exported) ─────────
 
@@ -516,6 +517,90 @@ export async function toggleTail(tipId: string, join: boolean): Promise<{ error?
     return {
       error: error.code === "42501" ? "Too late – the match has started (or it's your own tip)." : error.message,
     };
+  }
+  revalidatePath("/");
+  return {};
+}
+
+// ───────── 💬 comments + reactions ─────────
+
+const SOCIAL_MIGRATION_MSG = "Kommentarer er ikke sat op i databasen endnu – kør migration 0015_comments_reactions.sql i Supabase.";
+const tableMissing = (code?: string) => code === "42P01" || code === "PGRST205" || code === "PGRST202";
+
+/** Post a comment on a tip. Returns it (with your name and picture) so the card can show it at once. */
+export async function addComment(tipId: string, body: string): Promise<{ comment?: TipComment; error?: string }> {
+  const { supabase, user } = await getAuth();
+  if (!user) return { error: "Log in first." };
+  const text = body.trim();
+  if (!text) return { error: "Skriv en kommentar først." };
+  if (text.length > 500) return { error: "Max 500 tegn." };
+
+  const { data, error } = await supabase
+    .from("tip_comments")
+    .insert({ tip_id: tipId, body: text })
+    .select("id, author_id, body, created_at")
+    .single();
+  if (error || !data) {
+    return { error: tableMissing(error?.code) ? SOCIAL_MIGRATION_MSG : error?.code === "42501" ? "Du kan kun kommentere i din egen gruppe." : (error?.message ?? "Kunne ikke gemme.") };
+  }
+  const me = await getMyProfile();
+
+  // 🔔 tell the tipster and the others in the thread (after the response, never blocking the comment)
+  if (pushConfigured()) {
+    try {
+      const [{ data: targets }, { data: tip }] = await Promise.all([
+        supabase.rpc("get_comment_push_targets", { p_comment: data.id }),
+        supabase.from("tips").select("share_slug, selection").eq("id", tipId).single(),
+      ]);
+      const list = (targets ?? []) as PushTarget[];
+      if (list.length > 0 && tip) {
+        const payload = {
+          title: `💬 @${me?.username ?? "Someone"} på “${tip.selection.slice(0, 60)}”`,
+          body: text.slice(0, 140),
+          url: `/t/${tip.share_slug}`,
+          tag: `comments-${tipId}`,
+        };
+        after(async () => {
+          const dead = await sendPush(list, payload);
+          if (dead.length > 0) await supabase.rpc("remove_push_subscriptions", { p_endpoints: dead });
+        });
+      }
+    } catch (e) {
+      console.error("comment push setup failed", e);
+    }
+  }
+
+  revalidatePath("/");
+  return {
+    comment: {
+      ...data,
+      username: me?.username ?? "me",
+      avatar_url: me?.avatar_url ?? null,
+    },
+  };
+}
+
+/** Delete a comment – your own, or any comment if you're the group admin (checked by the database). */
+export async function deleteComment(commentId: string): Promise<{ error?: string }> {
+  const { supabase, user } = await getAuth();
+  if (!user) return { error: "Log in first." };
+  const { error, count } = await supabase.from("tip_comments").delete({ count: "exact" }).eq("id", commentId);
+  if (error) return { error: error.message };
+  if (count === 0) return { error: "Du kan kun slette dine egne kommentarer." };
+  revalidatePath("/");
+  return {};
+}
+
+/** Give or take back a reaction (🔥 💰 😬 🤡) on a tip. */
+export async function toggleReaction(tipId: string, reaction: string, on: boolean): Promise<{ error?: string }> {
+  const { supabase, user } = await getAuth();
+  if (!user) return { error: "Log in first." };
+  if (!isReaction(reaction)) return { error: "Ukendt reaktion." };
+  const { error } = on
+    ? await supabase.from("tip_reactions").insert({ tip_id: tipId, reaction })
+    : await supabase.from("tip_reactions").delete().eq("tip_id", tipId).eq("user_id", user.id).eq("reaction", reaction);
+  if (error && error.code !== "23505") {
+    return { error: tableMissing(error.code) ? SOCIAL_MIGRATION_MSG : error.message };
   }
   revalidatePath("/");
   return {};

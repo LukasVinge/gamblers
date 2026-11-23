@@ -8,7 +8,8 @@ import { getBaseUrl } from "@/lib/url";
 import { SettleForm } from "@/components/SettleForm";
 import { tipMessage } from "@/lib/shareText";
 import { ShareSheet } from "@/components/ShareSheet";
-import { TailButton } from "@/components/TailButton";
+import { TipSocial } from "@/components/TipSocial";
+import { emptyReactions, getSocial, type TipSocialData } from "@/lib/social";
 import { TipCard } from "@/components/TipCard";
 import { getTails, type TailUser } from "@/lib/tails";
 import { Card, Notice } from "@/components/ui";
@@ -47,15 +48,20 @@ export default async function SharedTipPage({ params, searchParams }: Props) {
   // 🤝 Who's on this tip (members only – the database returns nothing for non-members)
   let tailUsers: TailUser[] = [];
   let me: TailUser | null = null;
+  let isAdmin = false;
+  let social: TipSocialData | null = null;
   if (user) {
-    // One parallel round trip: membership, admin rights, who's on it, and your own profile (shared with the top bar).
-    const [{ data: member }, { data: admin }, tails, myProfile] = await Promise.all([
+    // One parallel round trip: membership, admin rights, who's on it, comments + reactions, and your own profile.
+    const [{ data: member }, { data: admin }, tails, socialMap, myProfile] = await Promise.all([
       supabase.rpc("is_member", { p_group: tip.group_id }),
       supabase.rpc("is_admin", { p_group: tip.group_id }),
       getTails(supabase, [tip.id]),
+      getSocial(supabase, [tip.id], user.id),
       getMyProfile(),
     ]);
     isMember = Boolean(member);
+    isAdmin = Boolean(admin);
+    social = socialMap ? (socialMap.get(tip.id) ?? { comments: [], reactions: emptyReactions() }) : null;
     canSettle =
       (tip.author_id === user.id || Boolean(admin)) && (Date.parse(tip.kickoff_at) <= Date.now() || tip.status !== "pending");
     if (isMember) {
@@ -87,7 +93,11 @@ export default async function SharedTipPage({ params, searchParams }: Props) {
         tip={tip}
         linkToShare={false}
         showReasoning
-        social={isMember ? <TailButton tipId={tip.id} users={tailUsers} me={me} canTail={canTail} /> : undefined}
+        social={
+          isMember ? (
+            <TipSocial tipId={tip.id} tails={tailUsers} me={me} canTail={canTail} social={social} isAdmin={isAdmin} collapsedCount={100} />
+          ) : undefined
+        }
       >
         {canSettle && <SettleForm tipId={tip.id} current={tip.status} back={`/t/${tip.share_slug}`} />}
         {canEdit && (
