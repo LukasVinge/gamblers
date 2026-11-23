@@ -13,8 +13,10 @@ export function BookmakerFilter({ bookmakers, selected, view }: { bookmakers: Bo
   const off = "bg-surface text-ink-2 ring-line hover:ring-line-strong";
 
   return (
-    <nav aria-label="Filter by betting site" className="-mx-4 overflow-x-auto px-4 pb-1 [scrollbar-width:none]">
-      <div className="flex w-max gap-2 p-0.5">
+    // Phones: one row you swipe sideways. Wider screens: the chips wrap onto more lines, so none are hidden
+    // (a mouse can't easily scroll a row sideways).
+    <nav aria-label="Filter by betting site" className="-mx-4 overflow-x-auto px-4 pb-1 [scrollbar-width:none] sm:mx-0 sm:overflow-visible sm:px-0">
+      <div className="flex w-max gap-2 p-0.5 sm:w-auto sm:flex-wrap">
         <Link href={href([])} aria-current={selected.length === 0 ? "true" : undefined} className={`${chip} ${selected.length === 0 ? on : off}`}>
           Alle sites
         </Link>

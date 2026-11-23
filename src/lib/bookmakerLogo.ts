@@ -18,9 +18,6 @@ const LOCAL_LOGOS: Record<string, string> = {
   "stake.dk": "/bookmakers/stake.dk.png",
 };
 
-/** Bookmakers with no usable icon anywhere – shown as a letter tile instead of a blurry/empty image. */
-const NO_LOGO = new Set(["betfair.com"]);
-
 function hostOf(url: string): string | null {
   try {
     return new URL(url).hostname.replace(/^www\./, "");
@@ -37,7 +34,7 @@ function hostOf(url: string): string | null {
 export function bookmakerLogo(url: string | null | undefined, size: 32 | 64 | 128 = 64, absoluteBase?: string): string | null {
   if (!url) return null;
   const host = hostOf(url);
-  if (!host || NO_LOGO.has(host)) return null;
+  if (!host) return null;
   const local = LOCAL_LOGOS[host];
   if (local) return absoluteBase ? `${absoluteBase}${local}` : local;
   return `https://www.google.com/s2/favicons?domain=${encodeURIComponent(host)}&sz=${size}`;
