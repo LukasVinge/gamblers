@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 import type { TipView } from "@/lib/types";
 import { fmtKickoff, fmtOdds, fmtStake, fmtUnits, profitClass, STATUS_CLASS, STATUS_LABEL, tipProfit } from "@/lib/format";
 import { tipMessage, sportEmoji } from "@/lib/shareText";
-import { promoBadge } from "@/lib/promos";
+import { countsOnLeaderboard, promoBadge } from "@/lib/promos";
 import { isCombo } from "@/lib/types";
 import { ComboLegs } from "./ComboLegs";
 import { ShareSheet } from "./ShareSheet";
@@ -136,6 +136,11 @@ export function TipCard({
             )}
           </span>
           <span>Stake {fmtStake(tip.stake_units)}</span>
+          {!countsOnLeaderboard(tip) && (
+            <span className="rounded bg-subtle px-1.5 py-0.5 text-[11px] font-medium text-muted ring-1 ring-line" title="Dette tilbud tæller ikke på leaderboardet">
+              Uden for leaderboard
+            </span>
+          )}
           <StatusBadge status={tip.status} />
           {profit !== null && <span className={`font-mono font-semibold ${profitClass(profit)}`}>{fmtUnits(profit)}</span>}
         </div>

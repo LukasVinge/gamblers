@@ -1,5 +1,5 @@
 import { sortBookmakers } from "@/lib/bookmakerLogo";
-import { PROMOS } from "@/lib/promos";
+import { OFF_LEADERBOARD_TEXT, PROMOS } from "@/lib/promos";
 import { BookmakerLogo } from "./BookmakerLogo";
 import { Field, inputCls } from "./ui";
 
@@ -66,7 +66,10 @@ export function BetFields({
             </label>
           ))}
         </div>
-        <p className="text-xs text-muted">Skriv de forhøjede odds i Boost-feltet, så ROI bliver regnet rigtigt.</p>
+        <p className="text-xs text-muted">
+          Skriv de forhøjede odds i Boost-feltet, så ROI bliver regnet rigtigt. {OFF_LEADERBOARD_TEXT} vises på siden, men tæller ikke på
+          leaderboardet.
+        </p>
       </fieldset>
 
       {/* Short labels so all three stay on one line on a phone and the boxes line up */}

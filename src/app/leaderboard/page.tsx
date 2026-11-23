@@ -9,6 +9,7 @@ import { SegmentedLinks } from "@/components/Segmented";
 import { ShareSheet } from "@/components/ShareSheet";
 import { LeaderboardStandings } from "@/components/LeaderboardStandings";
 import { normalizePromoRows, PromoStats } from "@/components/PromoStats";
+import { OFF_LEADERBOARD_TEXT } from "@/lib/promos";
 import { Card } from "@/components/ui";
 
 export const metadata = { title: "Leaderboard" };
@@ -119,7 +120,8 @@ export default async function LeaderboardPage({ searchParams }: { searchParams: 
       <LeaderboardStandings ranked={ranked} unranked={unranked} minSettled={MIN_SETTLED} />
 
       <p className="text-xs text-muted">
-        Ranked by ROI (profit ÷ staked) · {MIN_SETTLED}+ settled tips needed · W–L–V = won–lost–void
+        Ranked by ROI (profit ÷ staked) · {MIN_SETTLED}+ settled tips needed · W–L–V = won–lost–void · {OFF_LEADERBOARD_TEXT} tæller
+        ikke med (se dem under ⚡ Boosts)
       </p>
     </div>
   );
