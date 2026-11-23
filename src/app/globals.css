@@ -43,6 +43,16 @@ body {
   color: var(--color-ink);
 }
 
+/* Installed app (home screen): no rubber-band bounce when pulling past the top or bottom –
+   on iPhone the bounce drags the fixed bottom tab bar along with the page.
+   Only in the app, so pull-to-refresh still works in the normal browser. */
+@media (display-mode: standalone) {
+  html,
+  body {
+    overscroll-behavior-y: none;
+  }
+}
+
 /* Phones: iPhone Safari zooms the whole page in when you tap a text field whose text is smaller
    than 16px – and doesn't zoom back out. Keeping form text at 16px on touch screens stops that,
    while pinch-to-zoom still works for anyone who wants it. */

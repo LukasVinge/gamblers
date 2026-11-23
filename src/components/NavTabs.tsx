@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useEffect, useState } from "react";
 
 const TABS = [
   { href: "/", label: "Spilforslag", icon: "M4 6h16M4 12h16M4 18h10" },
@@ -45,9 +46,40 @@ export function TopTabs() {
   );
 }
 
+/** A field that opens the phone's keyboard (or picker wheel) when focused. */
+function opensKeyboard(el: Element | null): boolean {
+  if (!(el instanceof HTMLElement)) return false;
+  if (el.matches("textarea, select, [contenteditable='true']")) return true;
+  return el instanceof HTMLInputElement && !["checkbox", "radio", "button", "submit", "reset", "file", "range", "color", "hidden"].includes(el.type);
+}
+
+/**
+ * True while the user is typing on a touch screen. iPhone doesn't shrink the page for the keyboard –
+ * it slides the page under it, and a fixed bottom bar then scrolls along with the content.
+ * So the bar steps aside while the keyboard is up (it would be hidden behind it anyway).
+ */
+function useTyping() {
+  const [typing, setTyping] = useState(false);
+  useEffect(() => {
+    if (!window.matchMedia("(pointer: coarse)").matches) return;
+    const update = () => setTyping(opensKeyboard(document.activeElement));
+    const onFocusIn = (e: FocusEvent) => opensKeyboard(e.target as Element) && setTyping(true);
+    // focus may move straight to the next field – check where it landed
+    const onFocusOut = () => window.setTimeout(update, 50);
+    document.addEventListener("focusin", onFocusIn);
+    document.addEventListener("focusout", onFocusOut);
+    return () => {
+      document.removeEventListener("focusin", onFocusIn);
+      document.removeEventListener("focusout", onFocusOut);
+    };
+  }, []);
+  return typing;
+}
+
 /** Fixed tab bar at the bottom of the screen on phones. "Nyt spil" is a normal tab, just in the accent colour. */
 export function BottomTabs() {
   const pathname = usePathname();
+  const typing = useTyping();
   const [first, second, third] = TABS;
   const tab = (t: { href: string; label: string; icon: string }, highlight = false) => {
     const active = isActive(pathname, t.href);
@@ -67,7 +99,10 @@ export function BottomTabs() {
     );
   };
   return (
-    <nav className="fixed inset-x-0 bottom-0 z-20 border-t border-line bg-surface/95 pb-[env(safe-area-inset-bottom)] backdrop-blur sm:hidden">
+    <nav
+      data-bottom-tabs
+      className={`fixed inset-x-0 bottom-0 z-20 border-t border-line bg-surface/95 pb-[env(safe-area-inset-bottom)] backdrop-blur sm:hidden ${typing ? "hidden" : ""}`}
+    >
       <div className="mx-auto flex max-w-md items-stretch px-1">
         {tab(first)}
         {tab(second)}
