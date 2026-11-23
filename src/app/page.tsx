@@ -8,6 +8,7 @@ import { getTails, type TailUser } from "@/lib/tails";
 import { inviteMessage, openTipsDigest } from "@/lib/shareText";
 import { legsMissing, TIP_SELECT, TIP_SELECT_BASIC, toTipView, type TipRow } from "@/lib/types";
 import { sortBookmakers } from "@/lib/bookmakerLogo";
+import { orderFeed } from "@/lib/feedOrder";
 import type { BookmakerOption } from "@/components/BetFields";
 import { BookmakerFilter } from "@/components/BookmakerFilter";
 import { GroupHeader, NotInGroup } from "@/components/GroupHeader";
@@ -120,6 +121,10 @@ export default async function Home({
   const inviteUrl = inviteCode ? `${baseUrl}/join/${inviteCode}` : null;
   const qrSvg = inviteUrl ? await QRCode.toString(inviteUrl, { type: "svg", margin: 1 }) : undefined;
   const now = Date.now();
+  // Next kickoff at the top; started/settled ones below (Settled view: most recent first, as before)
+  const { coming, started: startedTips } = orderFeed(tips, now);
+  const feed = view === "settled" ? tips : [...coming, ...startedTips];
+  const firstStarted = view === "settled" ? -1 : coming.length;
   const bmParam = bmIds.length ? `&bm=${bmIds.join(",")}` : "";
   const back = `/?view=${view}${bmParam}`;
 
@@ -196,7 +201,7 @@ export default async function Home({
               size="sm"
               label={`Share all ${tips.length} open tips`}
               title="Share all open tips"
-              message={openTipsDigest(group.name, tips, (t) => tipUrl(t.share_slug))}
+              message={openTipsDigest(group.name, feed, (t) => tipUrl(t.share_slug))}
             />
           </div>
         )}
@@ -221,12 +226,19 @@ export default async function Home({
         </Card>
       ) : (
         <ul className="space-y-3">
-          {tips.map((t) => {
+          {feed.map((t, i) => {
             const started = Date.parse(t.kickoff_at) <= now;
+            // divider between the coming matches and the ones that have already started
+            const divider = i === firstStarted && i > 0;
             const canSettle = (t.author_id === user.id || isAdmin) && (started || t.status !== "pending");
             const canDelete = t.author_id === user.id && t.status === "pending" && !started;
             return (
               <li key={t.id}>
+                {divider && (
+                  <h2 className="mb-3 mt-6 text-xs font-semibold uppercase tracking-wide text-muted">
+                    {view === "upcoming" ? "⏳ Startet – venter på resultat" : "Startede og afgjorte"}
+                  </h2>
+                )}
                 <TipCard
                   tip={t}
                   showReasoning="clamp"
